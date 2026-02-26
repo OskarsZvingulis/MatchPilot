@@ -22,9 +22,15 @@ const EXPERIENCE_BANDS = ['0-2', '3-5', '5+', 'unknown'] as const;
 
 const REMOTE_FEASIBILITIES = ['good', 'maybe', 'no'] as const;
 
+const VISA_RESTRICTIONS = ['none', 'uk_only', 'us_only', 'eu_only', 'unknown'] as const;
+
+const SALARY_CURRENCIES = ['GBP', 'EUR', 'USD', 'unknown'] as const;
+
 type RoleCategory = (typeof ROLE_CATEGORIES)[number];
 type ExperienceBand = (typeof EXPERIENCE_BANDS)[number];
 type RemoteFeasibility = (typeof REMOTE_FEASIBILITIES)[number];
+type VisaRestriction = (typeof VISA_RESTRICTIONS)[number];
+type SalaryCurrency = (typeof SALARY_CURRENCIES)[number];
 
 // ─── Return types ─────────────────────────────────────────────────────────────
 
@@ -35,6 +41,12 @@ export interface JobScore {
   remote_feasibility: RemoteFeasibility;
   reasons: string[];
   red_flags: string[];
+  onsite_required: boolean;
+  visa_restriction: VisaRestriction;
+  salary_min_gbp: number | null;
+  salary_max_gbp: number | null;
+  salary_currency: SalaryCurrency;
+  tech_mismatch: boolean;
 }
 
 export interface CvEmphasis {
@@ -51,7 +63,7 @@ export interface JobAssets {
 
 // ─── Scoring prompts ──────────────────────────────────────────────────────────
 
-const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary.`;
+const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null. Set onsite_required to true only if the posting explicitly states onsite-only, 5 days in office, or no remote option. Set visa_restriction based on explicit language about right to work, citizenship requirements, or no sponsorship. Set tech_mismatch to true if the role is heavily Python/backend/data-only with no API or integration focus and is not a good fit for a SaaS integration engineer profile.`;
 
 function buildScoreUserMessage(description: string): string {
   return `CANDIDATE PROFILE:
@@ -94,7 +106,13 @@ REQUIRED JSON STRUCTURE:
   "experience_band": "0-2|3-5|5+|unknown",
   "remote_feasibility": "good|maybe|no",
   "reasons": ["reason 1", "reason 2", "reason 3"],
-  "red_flags": ["flag 1"]
+  "red_flags": ["flag 1"],
+  "onsite_required": false,
+  "visa_restriction": "none|uk_only|us_only|eu_only|unknown",
+  "salary_min_gbp": null,
+  "salary_max_gbp": null,
+  "salary_currency": "GBP|EUR|USD|unknown",
+  "tech_mismatch": false
 }
 
 JOB DESCRIPTION:
@@ -183,6 +201,28 @@ export async function scoreJob(description: string): Promise<JobScore> {
   if (!Array.isArray(data.red_flags) || !data.red_flags.every((f) => typeof f === 'string')) {
     throw new Error('scoreJob: missing or invalid "red_flags" (expected string[])');
   }
+  if (typeof data.onsite_required !== 'boolean') {
+    throw new Error('scoreJob: missing or invalid "onsite_required" (expected boolean)');
+  }
+  if (typeof data.visa_restriction !== 'string' || !(VISA_RESTRICTIONS as readonly string[]).includes(data.visa_restriction)) {
+    throw new Error(
+      `scoreJob: invalid "visa_restriction" "${data.visa_restriction}" — must be one of: ${VISA_RESTRICTIONS.join(', ')}`,
+    );
+  }
+  if (data.salary_min_gbp !== null && typeof data.salary_min_gbp !== 'number') {
+    throw new Error('scoreJob: invalid "salary_min_gbp" (expected number or null)');
+  }
+  if (data.salary_max_gbp !== null && typeof data.salary_max_gbp !== 'number') {
+    throw new Error('scoreJob: invalid "salary_max_gbp" (expected number or null)');
+  }
+  if (typeof data.salary_currency !== 'string' || !(SALARY_CURRENCIES as readonly string[]).includes(data.salary_currency)) {
+    throw new Error(
+      `scoreJob: invalid "salary_currency" "${data.salary_currency}" — must be one of: ${SALARY_CURRENCIES.join(', ')}`,
+    );
+  }
+  if (typeof data.tech_mismatch !== 'boolean') {
+    throw new Error('scoreJob: missing or invalid "tech_mismatch" (expected boolean)');
+  }
 
   return {
     role_category: data.role_category as RoleCategory,
@@ -191,6 +231,12 @@ export async function scoreJob(description: string): Promise<JobScore> {
     remote_feasibility: data.remote_feasibility as RemoteFeasibility,
     reasons: data.reasons,
     red_flags: data.red_flags,
+    onsite_required: data.onsite_required,
+    visa_restriction: data.visa_restriction as VisaRestriction,
+    salary_min_gbp: data.salary_min_gbp as number | null,
+    salary_max_gbp: data.salary_max_gbp as number | null,
+    salary_currency: data.salary_currency as SalaryCurrency,
+    tech_mismatch: data.tech_mismatch,
   };
 }
 
