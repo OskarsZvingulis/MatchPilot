@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { scoreJob } from '@/lib/openai';
+import { sendTelegramMessage } from '@/lib/telegram';
 
 export async function POST(req: NextRequest) {
   // 1. Parse and validate body
@@ -64,6 +65,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `DB insert failed: ${message}` }, { status: 500 });
   }
 
-  // 5. Return result
+  // 5. Notify via Telegram if score meets threshold
+  if (scoring.score >= 65) {
+    try {
+      await sendTelegramMessage(
+        `🔥 MatchPilot Alert\n\nScore: ${scoring.score}\nRole: ${scoring.role_category}\nBand: ${scoring.experience_band}\nRemote: ${scoring.remote_feasibility}\n\nJob ID: ${job_id}`
+      );
+    } catch (err) {
+      console.error('Telegram notification failed:', err);
+    }
+  }
+
+  // 6. Return result
   return NextResponse.json({ job_id, ...scoring });
 }
