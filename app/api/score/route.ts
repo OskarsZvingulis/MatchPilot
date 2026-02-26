@@ -3,8 +3,19 @@ import { getDb } from '@/lib/db';
 import { scoreJob, generateAssets } from '@/lib/openai';
 import { sendTelegramMessage } from '@/lib/telegram';
 
+type Tier = 'A' | 'B' | 'C' | 'reject';
+
+function deriveTier(score: number): Tier {
+  if (score >= 85) return 'A';
+  if (score >= 75) return 'B';
+  if (score >= 65) return 'C';
+  return 'reject';
+}
+
 export async function POST(req: NextRequest) {
-  // Parse and validate body
+  const sql = getDb();
+
+  // ── 1. Parse body ─────────────────────────────────────────────────────────
   let body: unknown;
   try {
     body = await req.json();
@@ -17,71 +28,42 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing or invalid "job_id"' }, { status: 400 });
   }
 
-  const sql = getDb();
-
-  // ── 1. Freeze check ───────────────────────────────────────────────────────
-  // Return stored record immediately — no re-scoring, no assets, no Telegram.
-  const existing = await sql`SELECT * FROM jobs_scored WHERE job_id = ${job_id} LIMIT 1`;
+  // ── 2. Freeze check ───────────────────────────────────────────────────────
+  const existing = await sql`
+    SELECT * FROM jobs_scored WHERE job_id = ${job_id} LIMIT 1
+  `;
   if (existing.length > 0) {
     return NextResponse.json(existing[0]);
   }
 
-  // Fetch job from jobs_raw
-  const rows = await sql`
+  // ── 3. Fetch raw job ──────────────────────────────────────────────────────
+  const rawRows = await sql`
     SELECT id, title, company, description
     FROM jobs_raw
     WHERE id = ${job_id}
     LIMIT 1
   `;
-  if (rows.length === 0) {
+
+  if (rawRows.length === 0) {
     return NextResponse.json({ error: `Job not found: ${job_id}` }, { status: 404 });
   }
 
-  const { title, company, description } = rows[0];
+  const { title, company, description } = rawRows[0];
 
-  // ── 2. LLM Scoring ────────────────────────────────────────────────────────
+  // ── 4. Score with LLM ─────────────────────────────────────────────────────
   let scoring;
   try {
-    scoring = await scoreJob(description);
+    scoring = await scoreJob(description ?? '');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: `Scoring failed: ${message}` }, { status: 500 });
   }
 
-  // Map visa_restriction string enum → boolean for DB and hard-filter logic.
-  // Any value other than "none" means a restriction exists.
   const visa_restriction: boolean = scoring.visa_restriction !== 'none';
+  const redFlags = Array.isArray(scoring.red_flags) ? scoring.red_flags : [];
+  const reasons  = Array.isArray(scoring.reasons)   ? scoring.reasons   : [];
 
-  // Insert scored record immediately (tier resolved below)
-  try {
-    await sql`
-      INSERT INTO jobs_scored
-        (job_id, role_category, score, experience_band, remote_feasibility,
-         reasons, red_flags, onsite_required, visa_restriction,
-         salary_min_gbp, salary_max_gbp, tech_mismatch)
-      VALUES
-        (
-          ${job_id},
-          ${scoring.role_category},
-          ${scoring.score},
-          ${scoring.experience_band},
-          ${scoring.remote_feasibility},
-          ${JSON.stringify(scoring.reasons)},
-          ${JSON.stringify(scoring.red_flags)},
-          ${scoring.onsite_required},
-          ${visa_restriction},
-          ${scoring.salary_min_gbp},
-          ${scoring.salary_max_gbp},
-          ${scoring.tech_mismatch}
-        )
-    `;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `DB insert failed: ${message}` }, { status: 500 });
-  }
-
-  // ── 3. Hard Filters ───────────────────────────────────────────────────────
-  // Deterministic rejection — no asset generation, no Telegram.
+  // ── 5. Hard filters ───────────────────────────────────────────────────────
   const hardReject =
     scoring.role_category === 'reject' ||
     scoring.onsite_required === true ||
@@ -89,27 +71,67 @@ export async function POST(req: NextRequest) {
     scoring.tech_mismatch === true ||
     (scoring.salary_min_gbp !== null && scoring.salary_min_gbp < 45000);
 
-  if (hardReject) {
-    await sql`UPDATE jobs_scored SET tier = 'reject' WHERE job_id = ${job_id}`;
-    return NextResponse.json({ job_id, ...scoring, visa_restriction, tier: 'reject' });
-  }
+  const finalScore = scoring.score;
+  const tier: Tier = hardReject ? 'reject' : deriveTier(finalScore);
 
-  // ── 4. Tier Classification ────────────────────────────────────────────────
-  const tier =
-    scoring.score >= 85 ? 'A' :
-    scoring.score >= 75 ? 'B' :
-    scoring.score >= 65 ? 'C' :
-                          'reject';
+  // ── 6. Atomic upsert ──────────────────────────────────────────────────────
+  await sql`
+    INSERT INTO jobs_scored (
+      job_id,
+      role_category,
+      score,
+      experience_band,
+      remote_feasibility,
+      reasons,
+      red_flags,
+      onsite_required,
+      visa_restriction,
+      salary_min_gbp,
+      salary_max_gbp,
+      tech_mismatch,
+      tier
+    )
+    VALUES (
+      ${job_id},
+      ${scoring.role_category},
+      ${finalScore},
+      ${scoring.experience_band},
+      ${scoring.remote_feasibility},
+      ${JSON.stringify(reasons)},
+      ${JSON.stringify(redFlags)},
+      ${scoring.onsite_required},
+      ${visa_restriction},
+      ${scoring.salary_min_gbp},
+      ${scoring.salary_max_gbp},
+      ${scoring.tech_mismatch},
+      ${tier}
+    )
+    ON CONFLICT (job_id)
+    DO UPDATE SET
+      role_category      = EXCLUDED.role_category,
+      score              = EXCLUDED.score,
+      experience_band    = EXCLUDED.experience_band,
+      remote_feasibility = EXCLUDED.remote_feasibility,
+      reasons            = EXCLUDED.reasons,
+      red_flags          = EXCLUDED.red_flags,
+      onsite_required    = EXCLUDED.onsite_required,
+      visa_restriction   = EXCLUDED.visa_restriction,
+      salary_min_gbp     = EXCLUDED.salary_min_gbp,
+      salary_max_gbp     = EXCLUDED.salary_max_gbp,
+      tech_mismatch      = EXCLUDED.tech_mismatch,
+      tier               = EXCLUDED.tier
+  `;
 
-  await sql`UPDATE jobs_scored SET tier = ${tier} WHERE job_id = ${job_id}`;
-
-  // ── 5. Tier Behavior ──────────────────────────────────────────────────────
+  // ── 7. Tier behavior ──────────────────────────────────────────────────────
   if (tier === 'A' || tier === 'B') {
-    // Generate assets once — skip if already exist (idempotent)
-    const existingAssets = await sql`SELECT job_id FROM job_assets WHERE job_id = ${job_id} LIMIT 1`;
+    const existingAssets = await sql`
+      SELECT job_id FROM job_assets WHERE job_id = ${job_id} LIMIT 1
+    `;
+
     if (existingAssets.length === 0) {
       try {
         const assets = await generateAssets(title ?? '', company ?? '', description ?? '');
+
         await sql`
           INSERT INTO job_assets
             (job_id, intro_paragraph, cover_letter, cv_emphasis)
@@ -127,16 +149,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Send Telegram once — idempotency guaranteed by freeze check at route entry
     try {
       await sendTelegramMessage(
-        `🔥 MatchPilot Alert\n\nTier: ${tier}\nScore: ${scoring.score}\nRole: ${scoring.role_category}\nBand: ${scoring.experience_band}\nRemote: ${scoring.remote_feasibility}\n\nJob ID: ${job_id}`
+        `🔥 MatchPilot Alert
+
+Tier: ${tier}
+Score: ${finalScore}
+Role: ${scoring.role_category}
+Band: ${scoring.experience_band}
+Remote: ${scoring.remote_feasibility}
+
+Job ID: ${job_id}`
       );
     } catch (err) {
       console.error('Telegram notification failed:', err);
     }
   }
 
-  // Tier C and reject: no Telegram, no generation — fall through to return
   return NextResponse.json({ job_id, ...scoring, visa_restriction, tier });
 }
