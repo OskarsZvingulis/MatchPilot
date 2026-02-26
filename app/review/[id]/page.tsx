@@ -29,6 +29,10 @@ const TIER_COLOR: Record<string, string> = {
   A: '#16a34a', B: '#2563eb', C: '#d97706', reject: '#dc2626',
 };
 
+const STATUS_COLOR: Record<string, string> = {
+  new: '#555', shortlist: '#16a34a', applied: '#2563eb', skip: '#dc2626',
+};
+
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', gap: '12px', padding: '5px 0', borderBottom: '1px solid #f0f0f0' }}>
@@ -70,10 +74,11 @@ export default async function JobDetailPage({
     );
   }
 
-  const data   = parseJobDetailResponse(await res.json());
-  const raw    = data.raw;
-  const scored = data.scored;
-  const assets = data.assets;
+  const data         = parseJobDetailResponse(await res.json());
+  const raw          = data.raw;
+  const scored       = data.scored;
+  const assets       = data.assets;
+  const reviewStatus = data.review?.status ?? 'new';
 
   const tierColor = scored ? (TIER_COLOR[String(scored.tier)] ?? '#000') : '#000';
 
@@ -89,6 +94,22 @@ export default async function JobDetailPage({
       <h1 style={{ fontSize: '20px', margin: '16px 0 4px' }}>
         {raw?.company ?? 'Unknown company'} — {raw?.title ?? 'Untitled'}
       </h1>
+
+      {/* Status badge */}
+      <div style={{ marginBottom: '12px' }}>
+        <span style={{
+          fontSize: '11px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          fontWeight: 'bold',
+          color: STATUS_COLOR[reviewStatus] ?? '#555',
+          border: `1px solid ${STATUS_COLOR[reviewStatus] ?? '#555'}`,
+          borderRadius: '3px',
+          padding: '2px 8px',
+        }}>
+          {reviewStatus}
+        </span>
+      </div>
 
       {/* Open job link */}
       {raw?.url && (
@@ -197,7 +218,7 @@ export default async function JobDetailPage({
         <h2 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>
           Action
         </h2>
-        <StatusButtons jobId={id} />
+        <StatusButtons jobId={id} initialStatus={reviewStatus === 'new' ? null : reviewStatus as 'shortlist' | 'applied' | 'skip'} />
       </section>
 
       {/* ── Raw description ─────────────────────────────────────────────── */}

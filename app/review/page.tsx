@@ -16,81 +16,119 @@ function getBaseUrl(hdrs: any): string {
     headerValue(hdrs, 'x-forwarded-host') ??
     headerValue(hdrs, 'host') ??
     'localhost:3000';
-
   const proto =
     headerValue(hdrs, 'x-forwarded-proto') ??
     (process.env.NODE_ENV === 'production' ? 'https' : 'http');
-
   return `${proto}://${host}`;
 }
 
-const VALID_TIERS = new Set(['A', 'B', 'C', 'reject']);
+const VALID_TIERS    = new Set(['A', 'B', 'C', 'reject']);
+const VALID_STATUSES = new Set(['new', 'shortlist', 'applied', 'skip', 'all']);
+const LIMIT          = 50;
 
 const TIER_COLOR: Record<string, string> = {
-  A: '#16a34a',
-  B: '#2563eb',
-  C: '#d97706',
-  reject: '#dc2626',
+  A: '#16a34a', B: '#2563eb', C: '#d97706', reject: '#dc2626',
 };
 
-const FILTERS = [
+const STATUS_COLOR: Record<string, string> = {
+  new: '#555', shortlist: '#16a34a', applied: '#2563eb', skip: '#dc2626',
+};
+
+const TIER_FILTERS = [
   { label: 'All A+B', value: 'A,B' },
   { label: 'Tier A',  value: 'A'   },
   { label: 'Tier B',  value: 'B'   },
   { label: 'Tier C',  value: 'C'   },
 ];
 
+const STATUS_FILTERS = [
+  { label: 'All',       value: 'all'       },
+  { label: 'New',       value: 'new'       },
+  { label: 'Shortlist', value: 'shortlist' },
+  { label: 'Applied',   value: 'applied'   },
+  { label: 'Skip',      value: 'skip'      },
+];
+
+function queueUrl(tiers: string, status: string, offset: number): string {
+  const p = new URLSearchParams({ tiers });
+  if (status !== 'all') p.set('status', status);
+  if (offset > 0) p.set('offset', String(offset));
+  return `/review?${p.toString()}`;
+}
+
+const FILTER_LINK = (active: boolean): React.CSSProperties => ({
+  textDecoration: active ? 'none' : 'underline',
+  fontWeight:     active ? 'bold' : 'normal',
+  color:          active ? '#000' : '#555',
+});
+
 export default async function ReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tiers?: string }>;
+  searchParams: Promise<{ tiers?: string; status?: string; offset?: string }>;
 }) {
-  const { tiers: tiersParam } = await searchParams;
-  const active = tiersParam ?? 'A,B';
+  const { tiers: tiersParam, status: statusParam, offset: offsetParam } = await searchParams;
 
-  const tiers = active
+  const activeTiers  = tiersParam ?? 'A,B';
+  const activeStatus = statusParam && VALID_STATUSES.has(statusParam) ? statusParam : 'new';
+  const offset       = Math.max(0, parseInt(offsetParam ?? '0', 10) || 0);
+
+  const tiers = activeTiers
     .split(',')
     .map((t) => t.trim())
     .filter((t) => VALID_TIERS.has(t));
-
   const validTiers = tiers.length > 0 ? tiers : ['A', 'B'];
 
-  // Build absolute URL from the incoming request host
-  const hdrs = await headers();
+  const hdrs    = await headers();
   const baseUrl = getBaseUrl(hdrs);
-  const url = new URL(`/api/review/jobs?tiers=${encodeURIComponent(validTiers.join(','))}&limit=50`, baseUrl);
-  const res = await fetch(url, { cache: 'no-store' });
 
-  let jobs: JobRow[] = [];
+  const apiUrl = new URL('/api/review/jobs', baseUrl);
+  apiUrl.searchParams.set('tiers',  validTiers.join(','));
+  apiUrl.searchParams.set('limit',  String(LIMIT));
+  apiUrl.searchParams.set('offset', String(offset));
+  if (activeStatus !== 'all') apiUrl.searchParams.set('status', activeStatus);
+
+  const res = await fetch(apiUrl, { cache: 'no-store' });
+
+  let jobs: JobRow[]     = [];
+  let count              = 0;
   let fetchError: string | null = null;
 
   if (!res.ok) {
     fetchError = `API error ${res.status}`;
   } else {
     try {
-      const data = parseJobsResponse(await res.json());
-      jobs = data.jobs;
+      const raw = await res.json();
+      const data = parseJobsResponse(raw);
+      jobs  = data.jobs;
+      count = typeof raw.count === 'number' ? raw.count : jobs.length;
     } catch (err) {
       fetchError = err instanceof Error ? err.message : String(err);
     }
   }
 
+  const from    = offset + 1;
+  const to      = offset + count;
+  const hasNext = count === LIMIT;
+  const hasPrev = offset > 0;
+
   return (
     <main style={{ fontFamily: 'monospace', padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
       <h1 style={{ fontSize: '20px', marginBottom: '20px' }}>MatchPilot — Review Queue</h1>
 
-      {/* Filter links */}
+      {/* Tier filters */}
+      <div style={{ display: 'flex', gap: '20px', marginBottom: '10px', fontSize: '13px' }}>
+        {TIER_FILTERS.map(({ label, value }) => (
+          <Link key={value} href={queueUrl(value, activeStatus, 0)} style={FILTER_LINK(activeTiers === value)}>
+            {label}
+          </Link>
+        ))}
+      </div>
+
+      {/* Status filters */}
       <div style={{ display: 'flex', gap: '20px', marginBottom: '16px', fontSize: '13px' }}>
-        {FILTERS.map(({ label, value }) => (
-          <Link
-            key={value}
-            href={`/review?tiers=${value}`}
-            style={{
-              textDecoration: active === value ? 'none' : 'underline',
-              fontWeight:     active === value ? 'bold' : 'normal',
-              color:          active === value ? '#000' : '#555',
-            }}
-          >
+        {STATUS_FILTERS.map(({ label, value }) => (
+          <Link key={value} href={queueUrl(activeTiers, value, 0)} style={FILTER_LINK(activeStatus === value)}>
             {label}
           </Link>
         ))}
@@ -102,14 +140,29 @@ export default async function ReviewPage({
         </p>
       )}
 
-      <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>
-        {jobs.length} job{jobs.length !== 1 ? 's' : ''}
-      </p>
+      {/* Count + pagination */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', fontSize: '12px', color: '#888' }}>
+        <span>
+          {count === 0 ? '0 jobs' : `Showing ${from}–${to}`}
+        </span>
+        <div style={{ display: 'flex', gap: '16px' }}>
+          {hasPrev && (
+            <Link href={queueUrl(activeTiers, activeStatus, Math.max(0, offset - LIMIT))} style={{ color: '#1d4ed8' }}>
+              ← Prev
+            </Link>
+          )}
+          {hasNext && (
+            <Link href={queueUrl(activeTiers, activeStatus, offset + LIMIT)} style={{ color: '#1d4ed8' }}>
+              Next →
+            </Link>
+          )}
+        </div>
+      </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
         <thead>
           <tr style={{ borderBottom: '2px solid #000', textAlign: 'left' }}>
-            {['Tier', 'Score', 'Company', 'Title', 'Location', 'Remote', 'Posted'].map((h) => (
+            {['Tier', 'Score', 'Status', 'Company', 'Title', 'Location', 'Remote', 'Posted'].map((h) => (
               <th key={h} style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>{h}</th>
             ))}
           </tr>
@@ -123,6 +176,11 @@ export default async function ReviewPage({
                 </span>
               </td>
               <td style={{ padding: '7px 10px' }}>{String(job.score)}</td>
+              <td style={{ padding: '7px 10px' }}>
+                <span style={{ color: STATUS_COLOR[String(job.status ?? 'new')] ?? '#555' }}>
+                  {String(job.status ?? 'new')}
+                </span>
+              </td>
               <td style={{ padding: '7px 10px' }}>{String(job.company ?? '—')}</td>
               <td style={{ padding: '7px 10px' }}>
                 <Link href={`/review/${job.job_id}`} style={{ color: '#1d4ed8' }}>
@@ -140,8 +198,8 @@ export default async function ReviewPage({
           ))}
           {jobs.length === 0 && (
             <tr>
-              <td colSpan={7} style={{ padding: '20px 10px', color: '#888', textAlign: 'center' }}>
-                No jobs found for selected tiers.
+              <td colSpan={8} style={{ padding: '20px 10px', color: '#888', textAlign: 'center' }}>
+                No jobs found.
               </td>
             </tr>
           )}

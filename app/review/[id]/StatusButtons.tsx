@@ -11,9 +11,9 @@ const BUTTONS: { label: string; value: Status; color: string }[] = [
   { label: 'Skip', value: 'skip', color: '#dc2626' },
 ];
 
-export default function StatusButtons({ jobId }: { jobId: string }) {
+export default function StatusButtons({ jobId, initialStatus }: { jobId: string; initialStatus?: Status | null }) {
   const router = useRouter();
-  const [active, setActive] = useState<Status | null>(null);
+  const [active, setActive] = useState<Status | null>(initialStatus ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

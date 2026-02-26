@@ -25,15 +25,17 @@ export async function GET(
     return NextResponse.json({ error: `Job not found: ${id}` }, { status: 404 });
   }
 
-  // Fetch scored row and assets in parallel
-  const [scoredRows, assetRows] = await Promise.all([
+  // Fetch scored row, assets, and review status in parallel
+  const [scoredRows, assetRows, reviewRows] = await Promise.all([
     sql`SELECT * FROM jobs_scored WHERE job_id = ${id} LIMIT 1`,
     sql`SELECT * FROM job_assets  WHERE job_id = ${id} LIMIT 1`,
+    sql`SELECT * FROM job_review  WHERE job_id = ${id} LIMIT 1`,
   ]);
 
   return NextResponse.json({
     raw:    rawRows[0],
     scored: scoredRows[0] ?? null,
     assets: assetRows[0] ?? null,
+    review: reviewRows[0] ?? null,
   });
 }

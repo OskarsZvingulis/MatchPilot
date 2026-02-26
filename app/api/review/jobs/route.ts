@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 
-const VALID_TIERS = new Set(['A', 'B', 'C', 'reject']);
-const DEFAULT_TIERS = ['A', 'B'];
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
+const VALID_TIERS    = new Set(['A', 'B', 'C', 'reject']);
+const VALID_STATUSES = new Set(['new', 'shortlist', 'applied', 'skip']);
+const DEFAULT_TIERS  = ['A', 'B'];
+const DEFAULT_LIMIT  = 50;
+const MAX_LIMIT      = 200;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -27,6 +28,11 @@ export async function GET(req: NextRequest) {
   const rawOffset = parseInt(searchParams.get('offset') ?? '0', 10);
   const offset = isNaN(rawOffset) || rawOffset < 0 ? 0 : rawOffset;
 
+  // Parse optional status filter
+  const statusParam = searchParams.get('status');
+  const statusFilter: string | null =
+    statusParam && VALID_STATUSES.has(statusParam) ? statusParam : null;
+
   const sql = getDb();
 
   try {
@@ -47,10 +53,13 @@ export async function GET(req: NextRequest) {
         jr.ingested_at,
         EXISTS (
           SELECT 1 FROM job_assets ja WHERE ja.job_id = js.job_id
-        ) AS has_assets
+        ) AS has_assets,
+        COALESCE(r.status, 'new') AS status
       FROM jobs_scored js
       JOIN jobs_raw jr ON jr.id = js.job_id
+      LEFT JOIN job_review r ON r.job_id = js.job_id
       WHERE js.tier = ANY (${tiers})
+        AND (${statusFilter} IS NULL OR COALESCE(r.status, 'new') = ${statusFilter})
       ORDER BY
         CASE js.tier
           WHEN 'A' THEN 1
