@@ -65,27 +65,15 @@ export type ReviewState = {
 const VALID_TIERS = new Set(['A', 'B', 'C', 'reject']);
 
 export function parseJobsResponse(json: unknown): { jobs: JobRow[] } {
-  if (!json || typeof json !== 'object') {
-    throw new Error('parseJobsResponse: response is not an object');
-  }
+  if (!json || typeof json !== 'object') throw new Error('Invalid jobs response shape');
   const obj = json as Record<string, unknown>;
-  if (!Array.isArray(obj.jobs)) {
-    throw new Error('parseJobsResponse: "jobs" field is not an array');
-  }
-  const jobs: JobRow[] = obj.jobs.map((item: unknown, i: number) => {
-    if (!item || typeof item !== 'object') {
-      throw new Error(`parseJobsResponse: jobs[${i}] is not an object`);
-    }
+  if (!Array.isArray(obj.jobs)) throw new Error('Invalid jobs response shape');
+  const jobs: JobRow[] = obj.jobs.map((item: unknown) => {
+    if (!item || typeof item !== 'object') throw new Error('Invalid jobs response shape');
     const row = item as Record<string, unknown>;
-    if (typeof row.job_id !== 'string') {
-      throw new Error(`parseJobsResponse: jobs[${i}].job_id is not a string`);
-    }
-    if (typeof row.tier !== 'string' || !VALID_TIERS.has(row.tier)) {
-      throw new Error(`parseJobsResponse: jobs[${i}].tier "${row.tier}" is not a valid tier`);
-    }
-    if (typeof row.score !== 'number') {
-      throw new Error(`parseJobsResponse: jobs[${i}].score is not a number`);
-    }
+    if (typeof row.job_id !== 'string') throw new Error('Invalid jobs response shape');
+    if (typeof row.tier !== 'string' || !VALID_TIERS.has(row.tier)) throw new Error('Invalid jobs response shape');
+    if (typeof row.score !== 'number') throw new Error('Invalid jobs response shape');
     return row as unknown as JobRow;
   });
   return { jobs };
@@ -97,21 +85,20 @@ export function parseJobDetailResponse(json: unknown): {
   assets: AssetsJob | null;
   review: ReviewState | null;
 } {
-  if (!json || typeof json !== 'object') {
-    throw new Error('parseJobDetailResponse: response is not an object');
-  }
+  if (!json || typeof json !== 'object') throw new Error('Invalid job detail response shape');
   const obj = json as Record<string, unknown>;
 
-  if (!obj.raw || typeof obj.raw !== 'object') {
-    throw new Error('parseJobDetailResponse: "raw" is missing or not an object');
-  }
+  if (!obj.raw || typeof obj.raw !== 'object') throw new Error('Invalid job detail response shape');
   const raw = obj.raw as Record<string, unknown>;
-  if (typeof raw.id !== 'string') {
-    throw new Error('parseJobDetailResponse: raw.id is not a string');
+  if (typeof raw.id !== 'string') throw new Error('Invalid job detail response shape');
+
+  let scored: ScoredJob | null = null;
+  if (obj.scored && typeof obj.scored === 'object') {
+    const s = obj.scored as Record<string, unknown>;
+    if (typeof s.score !== 'number' || typeof s.tier !== 'string') throw new Error('Invalid job detail response shape');
+    scored = s as unknown as ScoredJob;
   }
 
-  const scored =
-    obj.scored && typeof obj.scored === 'object' ? (obj.scored as ScoredJob) : null;
   const assets =
     obj.assets && typeof obj.assets === 'object' ? (obj.assets as AssetsJob) : null;
   const review =

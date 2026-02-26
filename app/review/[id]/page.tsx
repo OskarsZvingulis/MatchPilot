@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
 import StatusButtons from './StatusButtons';
+import { parseJobDetailResponse } from '@/lib/reviewContract';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function headerValue(hdrs: any, key: string): string | null {
@@ -69,11 +70,10 @@ export default async function JobDetailPage({
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = await res.json() as Record<string, any>;
-  const raw    = data.raw    ?? null;
-  const scored = data.scored ?? null;
-  const assets = data.assets ?? null;
+  const data   = parseJobDetailResponse(await res.json());
+  const raw    = data.raw;
+  const scored = data.scored;
+  const assets = data.assets;
 
   const tierColor = scored ? (TIER_COLOR[String(scored.tier)] ?? '#000') : '#000';
 
