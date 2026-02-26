@@ -7,36 +7,41 @@ type Status = 'shortlist' | 'applied' | 'skip';
 
 const BUTTONS: { label: string; value: Status; color: string }[] = [
   { label: 'Shortlist', value: 'shortlist', color: '#16a34a' },
-  { label: 'Applied',   value: 'applied',   color: '#2563eb' },
-  { label: 'Skip',      value: 'skip',      color: '#dc2626' },
+  { label: 'Applied', value: 'applied', color: '#2563eb' },
+  { label: 'Skip', value: 'skip', color: '#dc2626' },
 ];
 
 export default function StatusButtons({ jobId }: { jobId: string }) {
   const router = useRouter();
-  const [active, setActive]   = useState<Status | null>(null);
+  const [active, setActive] = useState<Status | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleClick(status: Status) {
     setLoading(true);
     setError(null);
+
     try {
       const res = await fetch(`/api/review/status/${jobId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      const data = await res.json();
+
+      const data = await res.json().catch(() => null);
+
       if (!res.ok) {
-        throw new Error((data as Record<string, unknown>).error as string ?? `HTTP ${res.status}`);
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
       }
-      const d = data as Record<string, unknown>;
-      if (d.ok !== true || !d.review || typeof (d.review as Record<string, unknown>).status !== 'string') {
+
+      if (!data || data.ok !== true || !data.review?.status) {
         throw new Error('Unexpected response shape from status API');
       }
-      setActive(status);
+
+      setActive(data.review.status as Status);
       router.refresh();
     } catch (err) {
+      console.error('Status update failed:', err);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -68,6 +73,7 @@ export default function StatusButtons({ jobId }: { jobId: string }) {
           </button>
         ))}
       </div>
+
       {error && (
         <p style={{ marginTop: '8px', fontSize: '12px', color: '#dc2626' }}>
           Error: {error}
