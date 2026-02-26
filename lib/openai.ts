@@ -70,6 +70,23 @@ SCORING RULES:
 - Penalize: onsite-only, US-citizens-only, 5+ years mandatory, graduate programs
 - Fintech weighting is NOT special unless role is integration/API heavy
 
+Experience band classification rules:
+- Use "5+" ONLY if the posting explicitly contains: "5+ years", "Senior", "Staff", "Lead", or "Principal"
+- Use "0-2" ONLY if explicitly states graduate, junior, entry-level, or 0-2 years
+- Use "3-5" if explicitly states 3-5 years
+- If no explicit seniority stated, default to "3-5"
+- Do NOT infer seniority from tone, ownership, responsibility, or startup language
+
+Scoring scale guidance:
+- 90–100: Exceptional fit, highly aligned with candidate strengths
+- 75–89: Strong fit, good alignment with APIs/SaaS/remote
+- 60–74: Moderate fit, some alignment but not ideal
+- 40–59: Weak fit
+- 0–39: Poor fit or clear mismatch
+
+Most reasonable SaaS/API roles with remote options should score between 70–85.
+Do not default to very low numbers unless strong mismatch exists.
+
 REQUIRED JSON STRUCTURE:
 {
   "role_category": "",
