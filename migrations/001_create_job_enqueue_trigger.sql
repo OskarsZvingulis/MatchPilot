@@ -1,10 +1,3 @@
--- Create jobs_raw table (UUID-based)
-CREATE TABLE IF NOT EXISTS jobs_raw (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  data JSONB
-);
-
 -- Create jobs_queue table if it doesn't exist
 CREATE TABLE IF NOT EXISTS jobs_queue (
     job_id UUID PRIMARY KEY REFERENCES jobs_raw(id) ON DELETE CASCADE,
