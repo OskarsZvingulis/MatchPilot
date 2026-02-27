@@ -110,6 +110,12 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
       tier               = EXCLUDED.tier
   `;
 
+  await sql`
+    INSERT INTO job_review (job_id, status)
+    VALUES (${job_id}, 'new')
+    ON CONFLICT (job_id) DO NOTHING
+  `;
+
   // ── Tier A/B: generate assets + notify ────────────────────────────────────
   if (tier === 'A' || tier === 'B') {
     const existingAssets = await sql`
