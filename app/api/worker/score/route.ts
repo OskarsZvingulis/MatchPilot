@@ -9,6 +9,7 @@ interface JobQueueRow {
 }
 
 import { NextResponse } from 'next/server';
+import { logger } from '@/lib/logger';
 import { getDb } from '@/lib/db';
 import { runScoringForJob } from '@/lib/scoringPipeline';
 import { ENV } from '@/lib/env';
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
 
     } catch (transactionError) {
       await sql`ROLLBACK`; // Rollback on any error during transaction setup
-      console.error(`Transaction failed for jobId ${jobId || 'N/A'}:`, transactionError);
+      logger.error('Transaction failed', { job_id: jobId || 'N/A', error: transactionError });
       return NextResponse.json({
         ok: false,
         error: transactionError instanceof Error ? `Transaction error: ${transactionError.message}` : `Transaction error: ${String(transactionError)}`
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest) {
         `;
         return NextResponse.json({ ok: true, processed: 1, job_id: jobId });
       } catch (scoringError) {
-        console.error(`Scoring pipeline failed for job ${jobId}:`, scoringError);
+        logger.error("Scoring pipeline failed", { job_id: jobId, error: scoringError });
         // Update status to 'failed'
         await sql`
           UPDATE jobs_queue
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
 
   } catch (err) {
     // This catch block will only handle errors outside the explicit BEGIN/COMMIT/ROLLBACK blocks
-    console.error(`Top-level error for jobId ${jobId || 'N/A'}:`, err);
+    logger.error('Top-level error', { job_id: jobId || 'N/A', error: err });
     return NextResponse.json({
       ok: false,
       error: err instanceof Error ? `Top-level error: ${err.message}` : `Top-level error: ${String(err)}`

@@ -1,4 +1,5 @@
 import { getDb } from "../../../lib/db";
+import { logger } from '@/lib/logger';
 
 export async function GET() {
   let dbOk = false;
@@ -15,7 +16,7 @@ export async function GET() {
     pendingJobs = Number(pendingResult[0].count);
 
   } catch (error) {
-    console.error("Health check failed:", error);
+    logger.error("Health check failed", { error });
     dbOk = false;
     pendingJobs = 0; // Ensure a default value in case of error
   }
