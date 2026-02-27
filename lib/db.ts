@@ -1,9 +1,8 @@
 import { neon } from '@neondatabase/serverless';
+import { ENV } from '@/lib/env';
 
 export function getDb() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL is not set');
-  return neon(url);
+  return neon(ENV.DATABASE_URL);
 }
 
 export async function getJobsRawCount(): Promise<number> {

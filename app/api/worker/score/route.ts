@@ -11,8 +11,16 @@ interface JobQueueRow {
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { runScoringForJob } from '@/lib/scoringPipeline';
+import { ENV } from '@/lib/env';
+import { NextRequest } from 'next/server';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const workerSecret = req.headers.get('x-worker-secret');
+
+  if (ENV.WORKER_SECRET && workerSecret !== ENV.WORKER_SECRET) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   const sql = getDb();
   let jobId: number | null = null;
   let response: NextResponse | undefined;

@@ -33,6 +33,8 @@ export async function GET(req: NextRequest) {
   const statusFilter: string | null =
     statusParam && VALID_STATUSES.has(statusParam) ? statusParam : null;
 
+  const normalizedTiers = tiers.length > 0 ? tiers : null;
+
   const sql = getDb();
 
   try {
@@ -58,8 +60,8 @@ export async function GET(req: NextRequest) {
       FROM jobs_scored js
       JOIN jobs_raw jr ON jr.id = js.job_id
       LEFT JOIN job_review r ON r.job_id = js.job_id
-      WHERE js.tier = ANY (${tiers})
-        AND (${statusFilter} IS NULL OR COALESCE(r.status, 'new') = ${statusFilter})
+      WHERE (${normalizedTiers}::text[] IS NULL OR js.tier = ANY (${normalizedTiers}))
+        AND (${statusFilter}::text IS NULL OR COALESCE(r.status, 'new') = ${statusFilter}::text)
       ORDER BY
         CASE js.tier
           WHEN 'A' THEN 1
@@ -75,8 +77,11 @@ export async function GET(req: NextRequest) {
     `;
 
     return NextResponse.json({ tiers, limit, offset, count: rows.length, jobs: rows });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `Query failed: ${message}` }, { status: 500 });
+  }catch (err) {
+    console.error('Review jobs route failed:', err);
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
   }
 }
