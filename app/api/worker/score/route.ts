@@ -110,6 +110,11 @@ export async function POST(req: NextRequest) {
               locked_at = NULL
           WHERE job_id = ${jobId}
         `;
+
+        await sql`
+          INSERT INTO jobs_failures (job_id, source, error, payload)
+          VALUES (${jobId}, 'worker', ${scoringError instanceof Error ? scoringError.message : String(scoringError)}, NULL)
+        `;
         return NextResponse.json({
           ok: false,
           processed: 1,
