@@ -1,6 +1,8 @@
+import React from 'react';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { parseJobsResponse, type JobRow } from '@/lib/reviewContract';
+import { TableRow } from './TableRow';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function headerValue(hdrs: any, key: string): string | null {
@@ -26,16 +28,8 @@ const VALID_TIERS    = new Set(['A', 'B', 'C', 'reject']);
 const VALID_STATUSES = new Set(['new', 'shortlist', 'applied', 'skip', 'all']);
 const LIMIT          = 50;
 
-const TIER_COLOR: Record<string, string> = {
-  A: '#16a34a', B: '#2563eb', C: '#d97706', reject: '#dc2626',
-};
-
-const STATUS_COLOR: Record<string, string> = {
-  new: '#555', shortlist: '#16a34a', applied: '#2563eb', skip: '#dc2626',
-};
-
 const TIER_FILTERS = [
-  { label: 'All A+B', value: 'A,B' },
+  { label: 'All A+B+C', value: 'A,B,C' },
   { label: 'Tier A',  value: 'A'   },
   { label: 'Tier B',  value: 'B'   },
   { label: 'Tier C',  value: 'C'   },
@@ -69,7 +63,7 @@ export default async function ReviewPage({
 }) {
   const { tiers: tiersParam, status: statusParam, offset: offsetParam } = await searchParams;
 
-  const activeTiers  = tiersParam ?? 'A,B';
+  const activeTiers  = tiersParam ?? 'A,B,C';
   const activeStatus = statusParam && VALID_STATUSES.has(statusParam) ? statusParam : 'new';
   const offset       = Math.max(0, parseInt(offsetParam ?? '0', 10) || 0);
 
@@ -77,7 +71,7 @@ export default async function ReviewPage({
     .split(',')
     .map((t) => t.trim())
     .filter((t) => VALID_TIERS.has(t));
-  const validTiers = tiers.length > 0 ? tiers : ['A', 'B'];
+  const validTiers = tiers.length > 0 ? tiers : ['A', 'B', 'C'];
 
   const hdrs    = await headers();
   const baseUrl = getBaseUrl(hdrs);
@@ -92,6 +86,7 @@ export default async function ReviewPage({
 
   let jobs: JobRow[]     = [];
   let count              = 0;
+  let totalCount         = 0;
   let fetchError: string | null = null;
 
   if (!res.ok) {
@@ -102,6 +97,7 @@ export default async function ReviewPage({
       const data = parseJobsResponse(raw);
       jobs  = data.jobs;
       count = typeof raw.count === 'number' ? raw.count : jobs.length;
+      totalCount = typeof raw.totalCount === 'number' ? raw.totalCount : jobs.length;
     } catch (err) {
       fetchError = err instanceof Error ? err.message : String(err);
     }
@@ -143,7 +139,7 @@ export default async function ReviewPage({
       {/* Count + pagination */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', fontSize: '12px', color: '#888' }}>
         <span>
-          {count === 0 ? '0 jobs' : `Showing ${from}–${to}`}
+          {totalCount === 0 ? '0 jobs' : `Showing ${from}-${to} of ${totalCount} jobs`}
         </span>
         <div style={{ display: 'flex', gap: '16px' }}>
           {hasPrev && (
@@ -169,32 +165,7 @@ export default async function ReviewPage({
         </thead>
         <tbody>
           {jobs.map((job: JobRow) => (
-            <tr key={String(job.job_id)} style={{ borderBottom: '1px solid #e5e7eb' }}>
-              <td style={{ padding: '7px 10px' }}>
-                <span style={{ color: TIER_COLOR[String(job.tier)] ?? '#000', fontWeight: 'bold' }}>
-                  {String(job.tier)}
-                </span>
-              </td>
-              <td style={{ padding: '7px 10px' }}>{String(job.score)}</td>
-              <td style={{ padding: '7px 10px' }}>
-                <span style={{ color: STATUS_COLOR[String(job.status ?? 'new')] ?? '#555' }}>
-                  {String(job.status ?? 'new')}
-                </span>
-              </td>
-              <td style={{ padding: '7px 10px' }}>{String(job.company ?? '—')}</td>
-              <td style={{ padding: '7px 10px' }}>
-                <Link href={`/review/${job.job_id}`} style={{ color: '#1d4ed8' }}>
-                  {String(job.title ?? '—')}
-                </Link>
-              </td>
-              <td style={{ padding: '7px 10px', color: '#555' }}>{String(job.location ?? '—')}</td>
-              <td style={{ padding: '7px 10px', color: '#555' }}>{String(job.remote ?? '—')}</td>
-              <td style={{ padding: '7px 10px', color: '#555' }}>
-                {job.posted_at
-                  ? new Date(String(job.posted_at)).toLocaleDateString('en-GB')
-                  : '—'}
-              </td>
-            </tr>
+            <TableRow key={String(job.job_id)} job={job} />
           ))}
           {jobs.length === 0 && (
             <tr>

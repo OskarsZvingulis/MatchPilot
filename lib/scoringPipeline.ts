@@ -116,7 +116,7 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
     ON CONFLICT (job_id) DO NOTHING
   `;
 
-  // ── Tier A/B: generate assets + notify ────────────────────────────────────
+  // ── Tier A/B: generate assets ────────────────────────────────────
   if (tier === 'A' || tier === 'B') {
     const existingAssets = await sql`
       SELECT job_id FROM job_assets WHERE job_id = ${job_id} LIMIT 1
@@ -139,11 +139,19 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
         console.error('Asset generation failed:', err);
       }
     }
+  }
 
+  // ── Tier A: notify ────────────────────────────────────
+  if (tier === 'A') {
     try {
       await sendTelegramMessage(
         `🔥 MatchPilot Alert\n\nTier: ${tier}\nScore: ${finalScore}\nRole: ${scoring.role_category}\nBand: ${scoring.experience_band}\nRemote: ${scoring.remote_feasibility}\n\nJob ID: ${job_id}`,
       );
+      await sql`
+        INSERT INTO job_notifications (job_id, channel)
+        VALUES (${job_id}, 'telegram')
+        ON CONFLICT (job_id) DO NOTHING
+      `;
     } catch (err) {
       console.error('Telegram notification failed:', err);
     }
