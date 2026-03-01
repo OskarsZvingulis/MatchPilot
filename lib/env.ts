@@ -1,7 +1,13 @@
 const required = ['DATABASE_URL'];
 
 if (process.env.NODE_ENV === 'production') {
-  required.push('TELEGRAM_BOT_TOKEN', 'TELEGRAM_SECRET_TOKEN');
+  required.push(
+    'TELEGRAM_BOT_TOKEN',
+    'TELEGRAM_SECRET_TOKEN',
+    'ADMIN_USERNAME',
+        'ADMIN_PASSWORD_HASH',
+        'NEXTAUTH_SECRET'
+  );
 }
 
 for (const key of required) {
@@ -21,5 +27,8 @@ export const ENV = {
   DATABASE_URL: process.env.DATABASE_URL!,
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_SECRET_TOKEN: process.env.TELEGRAM_SECRET_TOKEN,
-  WORKER_SECRET: process.env.WORKER_SECRET
+  WORKER_SECRET: process.env.WORKER_SECRET,
+  ADMIN_USERNAME: process.env.ADMIN_USERNAME,
+    ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH,
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET
 };
