@@ -15,7 +15,7 @@ import { runScoringForJob } from '@/lib/scoringPipeline';
 import { ENV } from '@/lib/env';
 import { NextRequest } from 'next/server';
 
-export async function POST(req: NextRequest) {
+async function worker(req: NextRequest) {
   const workerSecret = req.headers.get('x-worker-secret');
 
   if (ENV.WORKER_SECRET && workerSecret !== ENV.WORKER_SECRET) {
@@ -137,3 +137,6 @@ export async function POST(req: NextRequest) {
     }, { status: 500 });
   }
 }
+
+export const GET = worker;
+export const POST = worker;
