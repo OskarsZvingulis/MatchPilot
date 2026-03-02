@@ -43,7 +43,7 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
 
   // ── Fetch raw job ──────────────────────────────────────────────────────────
   const rawRows = await sql`
-    SELECT id, title, company, description
+    SELECT id, title, company, description, remote
     FROM jobs_raw
     WHERE id = ${job_id}
     LIMIT 1
@@ -52,10 +52,10 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
     throw new Error(`Job not found: ${job_id}`);
   }
 
-  const { title, company, description } = rawRows[0];
+  const { title, company, description, remote } = rawRows[0];
 
   // ── Score with LLM ─────────────────────────────────────────────────────────
-  const scoring = await scoreJob(description ?? '');
+  const scoring = await scoreJob(description ?? '', { remote });
 
   const visa_restriction: boolean = scoring.visa_restriction !== 'none';
   const redFlags = Array.isArray(scoring.red_flags) ? scoring.red_flags : [];

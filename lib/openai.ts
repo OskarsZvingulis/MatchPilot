@@ -154,7 +154,7 @@ Return JSON:
 
 // ─── scoreJob ─────────────────────────────────────────────────────────────────
 
-export async function scoreJob(description: string): Promise<JobScore> {
+export async function scoreJob(description: string, job?: { remote?: unknown }): Promise<JobScore> {
   const response = await getClient().chat.completions.create({
     model: 'gpt-4o',
     response_format: { type: 'json_object' },
@@ -177,6 +177,15 @@ export async function scoreJob(description: string): Promise<JobScore> {
   }
 
   const data = parsed as Record<string, unknown>;
+
+  // ── Normalize remote_feasibility before validation ──────────────────────────
+  const allowed = ['good', 'maybe', 'no'];
+  let rf: string = (data.remote_feasibility as string | undefined)?.toLowerCase?.().trim() ?? '';
+  if (!allowed.includes(rf)) {
+    rf = job?.remote === true ? 'maybe' : 'no';
+  }
+  data.remote_feasibility = rf;
+  // ────────────────────────────────────────────────────────────────────────────
 
   if (typeof data.role_category !== 'string' || !(ROLE_CATEGORIES as readonly string[]).includes(data.role_category)) {
     throw new Error(
