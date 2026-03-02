@@ -94,7 +94,8 @@ export async function GET(req: NextRequest) {
     const totalCount = countRows[0]?.total_count || 0;
 
 
-    return NextResponse.json({ tiers, limit, offset, count: rows.length, totalCount, jobs: rows });
+    const jobs = rows.map((r) => ({ ...r, score: Number(r.score) }));
+    return NextResponse.json({ tiers, limit, offset, count: jobs.length, totalCount: Number(totalCount), jobs });
   }catch (err) {
     console.error('Review jobs route failed:', err);
     return NextResponse.json(

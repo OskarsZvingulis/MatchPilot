@@ -44,8 +44,7 @@ const STATUS_FILTERS = [
 ];
 
 function queueUrl(tiers: string, status: string, offset: number): string {
-  const p = new URLSearchParams({ tiers });
-  if (status !== 'all') p.set('status', status);
+  const p = new URLSearchParams({ tiers, status });
   if (offset > 0) p.set('offset', String(offset));
   return `/review?${p.toString()}`;
 }
@@ -91,28 +90,28 @@ export default async function ReviewPage({
   if (activeStatus !== 'all') apiUrl.searchParams.set('status', activeStatus);
 
   const cookieHeader = headerValue(hdrs, 'cookie');
-  const res = await fetch(apiUrl, {
-    cache: 'no-store',
-    headers: cookieHeader ? { cookie: cookieHeader } : undefined,
-  });
 
   let jobs: JobRow[]     = [];
   let count              = 0;
   let totalCount         = 0;
   let fetchError: string | null = null;
 
-  if (!res.ok) {
-    fetchError = `API error ${res.status}`;
-  } else {
-    try {
+  try {
+    const res = await fetch(apiUrl, {
+      cache: 'no-store',
+      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+    });
+    if (!res.ok) {
+      fetchError = `API error ${res.status}`;
+    } else {
       const raw = await res.json();
       const data = parseJobsResponse(raw);
       jobs  = data.jobs;
       count = typeof raw.count === 'number' ? raw.count : jobs.length;
       totalCount = typeof raw.totalCount === 'number' ? raw.totalCount : jobs.length;
-    } catch (err) {
-      fetchError = err instanceof Error ? err.message : String(err);
     }
+  } catch (err) {
+    fetchError = err instanceof Error ? err.message : String(err);
   }
 
   const from    = offset + 1;

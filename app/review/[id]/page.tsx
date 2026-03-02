@@ -96,7 +96,21 @@ export default async function JobDetailPage({
   const hdrs = await headers();
   const baseUrl = getBaseUrl(hdrs);
   const url = new URL(`/api/review/job/${encodeURIComponent(id)}`, baseUrl);
-  const res = await fetch(url, { cache: 'no-store' });
+  const cookieHeader = headerValue(hdrs, 'cookie');
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      cache: 'no-store',
+      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+    });
+  } catch (err) {
+    return (
+      <main>
+        <a href="/review" style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none' }}>← Back to queue</a>
+        <p style={{ color: '#f87171', marginTop: '16px', fontSize: '13px' }}>Network error: {err instanceof Error ? err.message : String(err)}</p>
+      </main>
+    );
+  }
 
   if (res.status === 404) notFound();
 
@@ -111,7 +125,17 @@ export default async function JobDetailPage({
     );
   }
 
-  const data         = parseJobDetailResponse(await res.json());
+  let data: ReturnType<typeof parseJobDetailResponse>;
+  try {
+    data = parseJobDetailResponse(await res.json());
+  } catch (err) {
+    return (
+      <main>
+        <a href="/review" style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none' }}>← Back to queue</a>
+        <p style={{ color: '#f87171', marginTop: '16px', fontSize: '13px' }}>Parse error: {err instanceof Error ? err.message : String(err)}</p>
+      </main>
+    );
+  }
   const raw          = data.raw;
   const scored       = data.scored;
   const assets       = data.assets;
