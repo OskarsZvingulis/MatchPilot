@@ -62,7 +62,7 @@ const QUEUE_COLOR: Record<string, string> = {
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{
-      backgroundColor: '#1e1e1e',
+      backgroundColor: '#1a1a1a',
       border: '1px solid #2a2a2a',
       borderRadius: '10px',
       padding: '20px 24px',
@@ -85,7 +85,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 function StatCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
   return (
     <div style={{
-      backgroundColor: '#1e1e1e',
+      backgroundColor: '#1a1a1a',
       border: '1px solid #2a2a2a',
       borderRadius: '10px',
       padding: '20px 24px',

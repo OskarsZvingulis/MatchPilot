@@ -29,10 +29,11 @@ const VALID_STATUSES = new Set(['new', 'shortlist', 'applied', 'skip', 'all']);
 const LIMIT          = 50;
 
 const TIER_FILTERS = [
-  { label: 'All A+B+C', value: 'A,B,C' },
-  { label: 'Tier A',    value: 'A'     },
-  { label: 'Tier B',    value: 'B'     },
-  { label: 'Tier C',    value: 'C'     },
+  { label: 'All',    value: 'A,B,C,reject', isReject: false },
+  { label: 'A',      value: 'A',            isReject: false },
+  { label: 'B',      value: 'B',            isReject: false },
+  { label: 'C',      value: 'C',            isReject: false },
+  { label: 'Reject', value: 'reject',       isReject: true  },
 ];
 
 const STATUS_FILTERS = [
@@ -51,15 +52,29 @@ function queueUrl(tiers: string, status: string, offset: number): string {
 
 const PILL = (active: boolean): React.CSSProperties => ({
   display: 'inline-block',
-  padding: '4px 14px',
-  borderRadius: '20px',
+  padding: '4px 12px',
+  borderRadius: '9999px',
   fontSize: '12px',
   fontWeight: active ? '600' : '400',
   textDecoration: 'none',
-  backgroundColor: active ? '#f1f5f9' : 'transparent',
-  color: active ? '#0f172a' : '#64748b',
+  backgroundColor: active ? '#2a2a2a' : '#1a1a1a',
+  color: '#e5e5e5',
   border: '1px solid',
-  borderColor: active ? '#f1f5f9' : '#334155',
+  borderColor: active ? '#444444' : '#2a2a2a',
+  whiteSpace: 'nowrap' as const,
+});
+
+const REJECT_PILL = (active: boolean): React.CSSProperties => ({
+  display: 'inline-block',
+  padding: '4px 12px',
+  borderRadius: '9999px',
+  fontSize: '12px',
+  fontWeight: active ? '600' : '400',
+  textDecoration: 'none',
+  backgroundColor: active ? 'rgba(220,38,38,0.15)' : '#1a1a1a',
+  color: '#fca5a5',
+  border: '1px solid',
+  borderColor: active ? 'rgba(220,38,38,0.4)' : 'rgba(220,38,38,0.2)',
   whiteSpace: 'nowrap' as const,
 });
 
@@ -70,7 +85,7 @@ export default async function ReviewPage({
 }) {
   const { tiers: tiersParam, status: statusParam, offset: offsetParam } = await searchParams;
 
-  const activeTiers  = tiersParam ?? 'A,B,C';
+  const activeTiers  = tiersParam ?? 'A,B,C,reject';
   const activeStatus = statusParam && VALID_STATUSES.has(statusParam) ? statusParam : 'new';
   const offset       = Math.max(0, parseInt(offsetParam ?? '0', 10) || 0);
 
@@ -78,7 +93,7 @@ export default async function ReviewPage({
     .split(',')
     .map((t) => t.trim())
     .filter((t) => VALID_TIERS.has(t));
-  const validTiers = tiers.length > 0 ? tiers : ['A', 'B', 'C'];
+  const validTiers = tiers.length > 0 ? tiers : ['A', 'B', 'C', 'reject'];
 
   const hdrs    = await headers();
   const baseUrl = getBaseUrl(hdrs);
@@ -124,10 +139,10 @@ export default async function ReviewPage({
       {/* Page header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
-          <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#f1f5f9', margin: '0 0 2px' }}>
+          <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#e5e5e5', margin: '0 0 2px' }}>
             Review Queue
           </h1>
-          <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>
+          <p style={{ fontSize: '12px', color: '#9ca3af', margin: 0 }}>
             {totalCount > 0 ? `${totalCount} jobs` : 'No jobs'}
           </p>
         </div>
@@ -135,15 +150,15 @@ export default async function ReviewPage({
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' as const }}>
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
-          {TIER_FILTERS.map(({ label, value }) => (
-            <Link key={value} href={queueUrl(value, activeStatus, 0)} style={PILL(activeTiers === value)}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
+          {TIER_FILTERS.map(({ label, value, isReject }) => (
+            <Link key={value} href={queueUrl(value, activeStatus, 0)} style={isReject ? REJECT_PILL(activeTiers === value) : PILL(activeTiers === value)}>
               {label}
             </Link>
           ))}
         </div>
         <div style={{ width: '1px', backgroundColor: '#2a2a2a', margin: '0 4px' }} />
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
           {STATUS_FILTERS.map(({ label, value }) => (
             <Link key={value} href={queueUrl(activeTiers, value, 0)} style={PILL(activeStatus === value)}>
               {label}
@@ -165,7 +180,7 @@ export default async function ReviewPage({
         alignItems: 'center',
         marginBottom: '12px',
         fontSize: '12px',
-        color: '#475569',
+        color: '#6b7280',
       }}>
         <span>
           {totalCount === 0 ? '—' : `Showing ${from}–${to} of ${totalCount}`}
@@ -186,14 +201,14 @@ export default async function ReviewPage({
 
       {/* Table card */}
       <div style={{
-        backgroundColor: '#1e1e1e',
+        backgroundColor: '#1a1a1a',
         borderRadius: '10px',
         border: '1px solid #2a2a2a',
         overflow: 'hidden',
       }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
-            <tr style={{ backgroundColor: '#181818', borderBottom: '1px solid #2a2a2a' }}>
+            <tr style={{ backgroundColor: '#141414', borderBottom: '1px solid #2a2a2a' }}>
               {['Tier', 'Score', 'Status', 'Company', 'Title', 'Location', 'Remote', 'Posted'].map((h) => (
                 <th key={h} style={{
                   padding: '10px 14px',
@@ -201,7 +216,7 @@ export default async function ReviewPage({
                   textAlign: 'left',
                   fontSize: '11px',
                   fontWeight: '600',
-                  color: '#475569',
+                  color: '#6b7280',
                   textTransform: 'uppercase',
                   letterSpacing: '0.06em',
                 }}>
@@ -216,7 +231,7 @@ export default async function ReviewPage({
             ))}
             {jobs.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ padding: '48px 14px', color: '#475569', textAlign: 'center', fontSize: '13px' }}>
+                <td colSpan={8} style={{ padding: '48px 14px', color: '#6b7280', textAlign: 'center', fontSize: '13px' }}>
                   No jobs found.
                 </td>
               </tr>

@@ -27,16 +27,49 @@ export default function LoginPage() {
     }
   };
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    fontSize: '13px',
+    color: '#e5e5e5',
+    backgroundColor: '#121212',
+    border: '1px solid #2a2a2a',
+    borderRadius: '6px',
+    outline: 'none',
+    fontFamily: 'var(--font-geist-mono), monospace',
+    boxSizing: 'border-box',
+  };
+
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="w-full max-w-xs p-8 space-y-6 bg-gray-800 rounded-lg shadow-md">
-        <h1 className="text-2xl font-bold text-center text-white">Login</h1>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label
-              htmlFor="username"
-              className="block text-sm font-medium text-gray-300"
-            >
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '100vh',
+      backgroundColor: '#121212',
+      fontFamily: 'var(--font-geist-mono), monospace',
+    }}>
+      <div style={{
+        width: '100%',
+        maxWidth: '320px',
+        padding: '32px',
+        backgroundColor: '#1a1a1a',
+        border: '1px solid #2a2a2a',
+        borderRadius: '12px',
+      }}>
+        <h1 style={{
+          fontSize: '18px',
+          fontWeight: '700',
+          color: '#e5e5e5',
+          margin: '0 0 28px',
+          textAlign: 'center',
+          letterSpacing: '-0.01em',
+        }}>
+          MatchPilot
+        </h1>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label htmlFor="username" style={{ fontSize: '12px', fontWeight: '500', color: '#9ca3af' }}>
               Username
             </label>
             <input
@@ -45,17 +78,12 @@ export default function LoginPage() {
               type="text"
               required
               value={username}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setUsername(e.target.value)
-              }
-              className="w-full px-3 py-2 mt-1 text-white bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
+              style={inputStyle}
             />
           </div>
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-300"
-            >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label htmlFor="password" style={{ fontSize: '12px', fontWeight: '500', color: '#9ca3af' }}>
               Password
             </label>
             <input
@@ -64,21 +92,31 @@ export default function LoginPage() {
               type="password"
               required
               value={password}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setPassword(e.target.value)
-              }
-              className="w-full px-3 py-2 mt-1 text-white bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+              style={inputStyle}
             />
           </div>
-          {error && <div className="text-sm text-red-500">{error}</div>}
-          <div>
-            <button
-              type="submit"
-              className="w-full px-4 py-2 font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Sign In
-            </button>
-          </div>
+          {error && (
+            <div style={{ fontSize: '12px', color: '#fca5a5' }}>{error}</div>
+          )}
+          <button
+            type="submit"
+            style={{
+              width: '100%',
+              padding: '9px 16px',
+              fontSize: '13px',
+              fontWeight: '600',
+              color: '#e5e5e5',
+              backgroundColor: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              marginTop: '4px',
+            }}
+          >
+            Sign In
+          </button>
         </form>
       </div>
     </div>

@@ -2,7 +2,7 @@ import NavBar from '@/app/components/NavBar';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ backgroundColor: '#141414', minHeight: '100vh' }}>
+    <div style={{ backgroundColor: '#121212', minHeight: '100vh' }}>
       <NavBar />
       <div style={{
         maxWidth: '1140px',

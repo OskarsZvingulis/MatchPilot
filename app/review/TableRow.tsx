@@ -28,7 +28,7 @@ export function TableRow({ job }: { job: JobRow }) {
 
   return (
     <tr
-      style={{ borderBottom: '1px solid #222', cursor: 'pointer', backgroundColor: '#1e1e1e' }}
+      style={{ borderBottom: '1px solid #222', cursor: 'pointer', backgroundColor: '#1a1a1a' }}
       className="hover:bg-neutral-700"
       onClick={handleClick}
     >

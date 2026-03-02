@@ -44,7 +44,7 @@ const STATUS_BG: Record<string, string> = {
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div style={{
-      backgroundColor: '#1e1e1e',
+      backgroundColor: '#1a1a1a',
       border: '1px solid #2a2a2a',
       borderRadius: '10px',
       padding: '20px 24px',
@@ -207,8 +207,9 @@ export default async function JobDetailPage({
                 padding: '8px 18px',
                 fontSize: '13px',
                 fontWeight: '600',
-                backgroundColor: '#f1f5f9',
-                color: '#0f172a',
+                backgroundColor: '#2a2a2a',
+                color: '#e5e5e5',
+                border: '1px solid #3a3a3a',
                 borderRadius: '7px',
                 textDecoration: 'none',
                 flexShrink: 0,
@@ -324,7 +325,7 @@ export default async function JobDetailPage({
           fontSize: '12px',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
-          background: '#1e1e1e',
+          background: '#1a1a1a',
           padding: '16px',
           borderRadius: '10px',
           lineHeight: '1.7',
