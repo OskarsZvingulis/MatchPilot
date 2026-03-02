@@ -29,6 +29,9 @@ export const ENV = {
   TELEGRAM_SECRET_TOKEN: process.env.TELEGRAM_SECRET_TOKEN,
   WORKER_SECRET: process.env.WORKER_SECRET,
   ADMIN_USERNAME: process.env.ADMIN_USERNAME,
-    ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH,
-    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET
+  // Stored as base64 in .env.local to prevent Next.js dotenv from interpolating the $ chars
+  ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH
+    ? Buffer.from(process.env.ADMIN_PASSWORD_HASH, 'base64').toString('utf8')
+    : undefined,
+  NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET
 };

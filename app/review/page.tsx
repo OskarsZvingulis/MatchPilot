@@ -82,7 +82,11 @@ export default async function ReviewPage({
   apiUrl.searchParams.set('offset', String(offset));
   if (activeStatus !== 'all') apiUrl.searchParams.set('status', activeStatus);
 
-  const res = await fetch(apiUrl, { cache: 'no-store' });
+  const cookieHeader = headerValue(hdrs, 'cookie');
+  const res = await fetch(apiUrl, {
+    cache: 'no-store',
+    headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+  });
 
   let jobs: JobRow[]     = [];
   let count              = 0;
