@@ -40,14 +40,19 @@ export async function POST(req: NextRequest) {
         ${str(b.source)},
         ${str(b.external_id)}
       )
+      ON CONFLICT DO NOTHING
       RETURNING id
     `;
+
+    if (rows.length === 0) {
+      return NextResponse.json({ ok: true, job_id: null, skipped: true });
+    }
 
     const job_id = String(rows[0].id);
 
     await sql`
-      INSERT INTO jobs_queue (job_id)
-      VALUES (${job_id})
+      INSERT INTO jobs_queue (job_id, status, attempts)
+      VALUES (${job_id}, 'pending', 0)
       ON CONFLICT (job_id) DO NOTHING
     `;
 
