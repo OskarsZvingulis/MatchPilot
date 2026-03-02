@@ -62,14 +62,19 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
   const reasons  = Array.isArray(scoring.reasons)   ? scoring.reasons   : [];
 
   // ── Hard filters ───────────────────────────────────────────────────────────
+  const level = scoring.tech_mismatch_level;
+
   const hardReject =
     scoring.role_category === 'reject' ||
     scoring.onsite_required === true   ||
     visa_restriction === true          ||
-    scoring.tech_mismatch === true     ||
+    level === 'major'                  ||
     (scoring.salary_min_gbp !== null && scoring.salary_min_gbp < 45000);
 
-  const finalScore = scoring.score;
+  // ── Tech mismatch severity cap ─────────────────────────────────────────────
+  let finalScore = scoring.score;
+  if (!hardReject && level === 'some') finalScore = Math.min(finalScore, 74);
+
   const tier: Tier = hardReject ? 'reject' : deriveTier(finalScore);
 
   // ── Atomic upsert ──────────────────────────────────────────────────────────

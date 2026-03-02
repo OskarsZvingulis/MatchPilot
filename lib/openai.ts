@@ -27,11 +27,15 @@ const VISA_RESTRICTIONS = ['none', 'uk_only', 'us_only', 'eu_only', 'unknown'] a
 
 const SALARY_CURRENCIES = ['GBP', 'EUR', 'USD', 'unknown'] as const;
 
+const TECH_MISMATCH_LEVELS = ['none', 'some', 'major'] as const;
+const TECH_MISMATCH_LEVEL_SET = new Set<string>(TECH_MISMATCH_LEVELS);
+
 type RoleCategory = (typeof ROLE_CATEGORIES)[number];
 type ExperienceBand = (typeof EXPERIENCE_BANDS)[number];
 type RemoteFeasibility = (typeof REMOTE_FEASIBILITIES)[number];
 type VisaRestriction = (typeof VISA_RESTRICTIONS)[number];
 type SalaryCurrency = (typeof SALARY_CURRENCIES)[number];
+type TechMismatchLevel = (typeof TECH_MISMATCH_LEVELS)[number];
 
 // ─── Return types ─────────────────────────────────────────────────────────────
 
@@ -48,6 +52,7 @@ export interface JobScore {
   salary_max_gbp: number | null;
   salary_currency: SalaryCurrency;
   tech_mismatch: boolean;
+  tech_mismatch_level: TechMismatchLevel;
 }
 
 export interface CvEmphasis {
@@ -64,7 +69,7 @@ export interface JobAssets {
 
 // ─── Scoring prompts ──────────────────────────────────────────────────────────
 
-const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null. Set onsite_required to true only if the posting explicitly states onsite-only, 5 days in office, or no remote option. Set visa_restriction based on explicit language about right to work, citizenship requirements, or no sponsorship. Set tech_mismatch to true if the role is heavily Python/backend/data-only with no API or integration focus and is not a good fit for a SaaS integration engineer profile.`;
+const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null. Set onsite_required to true only if the posting explicitly states onsite-only, 5 days in office, or no remote option. Set visa_restriction based on explicit language about right to work, citizenship requirements, or no sponsorship. For tech_mismatch_level: "none" means the stack aligns with the candidate's core skills (TypeScript, React, APIs, SaaS); "some" means partial match with notable gaps the candidate could ramp on; "major" means the core required stack is outside the candidate's experience (e.g. Django, Azure, DBA-heavy, Java-only, embedded, mobile-native). If unsure, choose "some". Set tech_mismatch to true only when tech_mismatch_level is "major".`;
 
 function buildScoreUserMessage(description: string): string {
   return `CANDIDATE PROFILE:
@@ -113,8 +118,16 @@ REQUIRED JSON STRUCTURE:
   "salary_min_gbp": null,
   "salary_max_gbp": null,
   "salary_currency": "GBP|EUR|USD|unknown",
+  "tech_mismatch_level": "none|some|major",
   "tech_mismatch": false
 }
+
+tech_mismatch_level definitions:
+- "none": stack aligns with candidate's core skills (TypeScript, React, REST APIs, SaaS tooling)
+- "some": partial match — notable gaps but candidate can ramp (e.g. Python-adjacent, AWS basics needed)
+- "major": core required stack is outside candidate's experience (Django/Flask, Azure, Java, mobile-native, DBA-heavy, embedded)
+If unsure, output "some". Never output any value other than none/some/major.
+tech_mismatch must be true if and only if tech_mismatch_level is "major".
 
 JOB DESCRIPTION:
 ${description}`;
@@ -185,6 +198,12 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
     rf = job?.remote === true ? 'maybe' : 'no';
   }
   data.remote_feasibility = rf;
+
+  // ── Normalize tech_mismatch_level before validation ─────────────────────────
+  let tml = (data.tech_mismatch_level as string | undefined)?.toLowerCase?.().trim() ?? '';
+  if (!TECH_MISMATCH_LEVEL_SET.has(tml)) tml = 'some';
+  data.tech_mismatch_level = tml as TechMismatchLevel;
+  data.tech_mismatch = tml === 'major';
   // ────────────────────────────────────────────────────────────────────────────
 
   if (typeof data.role_category !== 'string' || !(ROLE_CATEGORIES as readonly string[]).includes(data.role_category)) {
@@ -192,8 +211,13 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
       `scoreJob: invalid "role_category" "${data.role_category}" — must be one of: ${ROLE_CATEGORIES.join(', ')}`,
     );
   }
-  if (typeof data.score !== 'number') {
-    throw new Error('scoreJob: missing or invalid "score" (expected number 0–100)');
+  if (
+    typeof data.score !== 'number' ||
+    !Number.isFinite(data.score) ||
+    data.score < 0 ||
+    data.score > 100
+  ) {
+    throw new Error('scoreJob: invalid "score" (expected number 0–100)');
   }
   if (typeof data.experience_band !== 'string' || !(EXPERIENCE_BANDS as readonly string[]).includes(data.experience_band)) {
     throw new Error(
@@ -230,9 +254,7 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
       `scoreJob: invalid "salary_currency" "${data.salary_currency}" — must be one of: ${SALARY_CURRENCIES.join(', ')}`,
     );
   }
-  if (typeof data.tech_mismatch !== 'boolean') {
-    throw new Error('scoreJob: missing or invalid "tech_mismatch" (expected boolean)');
-  }
+  // tech_mismatch and tech_mismatch_level are both normalized above — no further validation needed
 
   return {
     role_category: data.role_category as RoleCategory,
@@ -246,7 +268,8 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
     salary_min_gbp: data.salary_min_gbp as number | null,
     salary_max_gbp: data.salary_max_gbp as number | null,
     salary_currency: data.salary_currency as SalaryCurrency,
-    tech_mismatch: data.tech_mismatch,
+    tech_mismatch: data.tech_mismatch as boolean,
+    tech_mismatch_level: data.tech_mismatch_level as TechMismatchLevel,
   };
 }
 
