@@ -26,18 +26,55 @@ function getBaseUrl(hdrs: any): string {
 }
 
 const TIER_COLOR: Record<string, string> = {
-  A: '#16a34a', B: '#2563eb', C: '#d97706', reject: '#dc2626',
+  A: '#86efac', B: '#93c5fd', C: '#fcd34d', reject: '#fca5a5',
+};
+
+const TIER_BG: Record<string, string> = {
+  A: '#14532d', B: '#1e3a5f', C: '#451a03', reject: '#450a0a',
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  new: '#555', shortlist: '#16a34a', applied: '#2563eb', skip: '#dc2626',
+  new: '#64748b', shortlist: '#86efac', applied: '#93c5fd', skip: '#fca5a5',
 };
+
+const STATUS_BG: Record<string, string> = {
+  new: '#2a2a2a', shortlist: '#14532d', applied: '#1e3a5f', skip: '#450a0a',
+};
+
+function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      backgroundColor: '#1e1e1e',
+      border: '1px solid #2a2a2a',
+      borderRadius: '10px',
+      padding: '20px 24px',
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 style={{
+      fontSize: '11px',
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: '0.08em',
+      color: '#555',
+      margin: '0 0 14px',
+    }}>
+      {children}
+    </h2>
+  );
+}
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', gap: '12px', padding: '5px 0', borderBottom: '1px solid #f0f0f0' }}>
-      <span style={{ width: '180px', flexShrink: 0, color: '#666', fontSize: '12px' }}>{label}</span>
-      <span style={{ fontSize: '13px', wordBreak: 'break-word' }}>{value ?? '—'}</span>
+    <div style={{ display: 'flex', gap: '12px', padding: '7px 0', borderBottom: '1px solid #141414' }}>
+      <span style={{ width: '180px', flexShrink: 0, color: '#475569', fontSize: '12px' }}>{label}</span>
+      <span style={{ fontSize: '13px', wordBreak: 'break-word', color: '#cbd5e1' }}>{value ?? '—'}</span>
     </div>
   );
 }
@@ -67,9 +104,9 @@ export default async function JobDetailPage({
     const body = await res.json().catch(() => ({}));
     const msg = (body as Record<string, unknown>).error ?? `HTTP ${res.status}`;
     return (
-      <main style={{ fontFamily: 'monospace', padding: '24px' }}>
-        <a href="/review" style={{ fontSize: '12px', color: '#555', textDecoration: 'underline' }}>← Back to queue</a>
-        <p style={{ color: '#dc2626', marginTop: '16px' }}>Error: {String(msg)}</p>
+      <main>
+        <a href="/review" style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none' }}>← Back to queue</a>
+        <p style={{ color: '#f87171', marginTop: '16px', fontSize: '13px' }}>Error: {String(msg)}</p>
       </main>
     );
   }
@@ -80,68 +117,93 @@ export default async function JobDetailPage({
   const assets       = data.assets;
   const reviewStatus = data.review?.status ?? 'new';
 
-  const tierColor = scored ? (TIER_COLOR[String(scored.tier)] ?? '#000') : '#000';
+  const tierColor = scored ? (TIER_COLOR[String(scored.tier)] ?? '#cbd5e1') : '#cbd5e1';
+  const tierBg    = scored ? (TIER_BG[String(scored.tier)]    ?? '#2a2a2a') : '#2a2a2a';
 
   return (
-    <main style={{ fontFamily: 'monospace', padding: '24px', maxWidth: '860px', margin: '0 auto' }}>
+    <main style={{ maxWidth: '820px' }}>
 
       {/* Back */}
-      <a href="/review" style={{ fontSize: '12px', color: '#555', textDecoration: 'underline' }}>
+      <a href="/review" style={{
+        fontSize: '12px',
+        color: '#64748b',
+        textDecoration: 'none',
+        display: 'inline-block',
+        marginBottom: '20px',
+      }}>
         ← Back to queue
       </a>
 
-      {/* Header */}
-      <h1 style={{ fontSize: '20px', margin: '16px 0 4px' }}>
-        {raw?.company ?? 'Unknown company'} — {raw?.title ?? 'Untitled'}
-      </h1>
+      {/* Header card */}
+      <Card style={{ marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: '12px', color: '#475569', margin: '0 0 4px', fontWeight: '500' }}>
+              {raw?.company ?? 'Unknown company'}
+            </p>
+            <h1 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', margin: '0 0 12px', lineHeight: '1.3' }}>
+              {raw?.title ?? 'Untitled'}
+            </h1>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{
+                fontSize: '11px',
+                fontWeight: '700',
+                color: STATUS_COLOR[reviewStatus] ?? '#64748b',
+                backgroundColor: STATUS_BG[reviewStatus] ?? '#2a2a2a',
+                borderRadius: '5px',
+                padding: '3px 10px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}>
+                {reviewStatus}
+              </span>
+              {scored && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  color: tierColor,
+                  backgroundColor: tierBg,
+                  borderRadius: '5px',
+                  padding: '3px 10px',
+                }}>
+                  Tier {String(scored.tier)} · {String(scored.score)}
+                </span>
+              )}
+            </div>
+          </div>
+          {raw?.url && (
+            <a
+              href={String(raw.url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '8px 18px',
+                fontSize: '13px',
+                fontWeight: '600',
+                backgroundColor: '#f1f5f9',
+                color: '#0f172a',
+                borderRadius: '7px',
+                textDecoration: 'none',
+                flexShrink: 0,
+              }}
+            >
+              Open Job ↗
+            </a>
+          )}
+        </div>
+      </Card>
 
-      {/* Status badge */}
-      <div style={{ marginBottom: '12px' }}>
-        <span style={{
-          fontSize: '11px',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          fontWeight: 'bold',
-          color: STATUS_COLOR[reviewStatus] ?? '#555',
-          border: `1px solid ${STATUS_COLOR[reviewStatus] ?? '#555'}`,
-          borderRadius: '3px',
-          padding: '2px 8px',
-        }}>
-          {reviewStatus}
-        </span>
-      </div>
-
-      {/* Open job link */}
-      {raw?.url && (
-        <a
-          href={String(raw.url)}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'inline-block',
-            marginBottom: '24px',
-            padding: '7px 16px',
-            fontSize: '13px',
-            border: '2px solid #000',
-            borderRadius: '4px',
-            textDecoration: 'none',
-            color: '#000',
-          }}
-        >
-          Open Job ↗
-        </a>
-      )}
-
-      {/* ── Score block ─────────────────────────────────────────────────── */}
-      <section style={{ marginBottom: '28px' }}>
-        <h2 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>
-          Score
-        </h2>
+      {/* ── Score ──────────────────────────────────────────────────────── */}
+      <Card style={{ marginBottom: '16px' }}>
+        <SectionHeading>Score</SectionHeading>
         {scored ? (
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: '6px', padding: '12px 16px' }}>
+          <div>
             <Field label="Tier"
               value={
-                <span style={{ color: tierColor, fontWeight: 'bold' }}>
+                <span style={{ color: tierColor, fontWeight: '700', backgroundColor: tierBg, borderRadius: '4px', padding: '1px 7px' }}>
                   {String(scored.tier)}
                 </span>
               }
@@ -160,70 +222,77 @@ export default async function JobDetailPage({
               )}
             />
             {Array.isArray(scored.red_flags) ? scored.red_flags.map((f: string, i: number) => (
-              <Field key={i} label={i === 0 ? 'Red flags' : ''} value={<span style={{ color: '#dc2626' }}>{f}</span>} />
+              <Field key={i} label={i === 0 ? 'Red flags' : ''} value={<span style={{ color: '#fca5a5' }}>{f}</span>} />
             )) : null}
           </div>
         ) : (
-          <p style={{ color: '#888', fontSize: '13px' }}>Not yet scored.</p>
+          <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>Not yet scored.</p>
         )}
-      </section>
+      </Card>
 
-      {/* ── Assets block ────────────────────────────────────────────────── */}
-      <section style={{ marginBottom: '28px' }}>
-        <h2 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>
-          Assets
-        </h2>
+      {/* ── Assets ─────────────────────────────────────────────────────── */}
+      <Card style={{ marginBottom: '16px' }}>
+        <SectionHeading>Assets</SectionHeading>
         {assets ? (
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: '6px', padding: '12px 16px' }}>
-            <div style={{ marginBottom: '16px' }}>
-              <p style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Intro paragraph</p>
-              <p style={{ fontSize: '13px', lineHeight: '1.6' }}>{String(assets.intro_paragraph)}</p>
+          <div>
+            <div style={{ marginBottom: '18px' }}>
+              <p style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Intro paragraph</p>
+              <p style={{ fontSize: '13px', lineHeight: '1.7', color: '#ccc', margin: 0 }}>{String(assets.intro_paragraph)}</p>
             </div>
-            <div style={{ marginBottom: '16px' }}>
-              <p style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Cover letter</p>
+            <div style={{ marginBottom: '18px' }}>
+              <p style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Cover letter</p>
               <pre style={{
                 fontSize: '12px',
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
-                background: '#f9fafb',
-                padding: '12px',
-                borderRadius: '4px',
+                background: '#141414',
+                padding: '14px',
+                borderRadius: '7px',
                 margin: 0,
-                lineHeight: '1.6',
+                lineHeight: '1.7',
+                border: '1px solid #2a2a2a',
+                color: '#ccc',
               }}>
                 {String(assets.cover_letter)}
               </pre>
             </div>
             <div>
-              <p style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>CV emphasis</p>
+              <p style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>CV emphasis</p>
               <pre style={{
                 fontSize: '12px',
-                background: '#f9fafb',
-                padding: '12px',
-                borderRadius: '4px',
+                background: '#141414',
+                padding: '14px',
+                borderRadius: '7px',
                 margin: 0,
                 overflow: 'auto',
+                border: '1px solid #2a2a2a',
+                color: '#ccc',
               }}>
                 {JSON.stringify(assets.cv_emphasis, null, 2)}
               </pre>
             </div>
           </div>
         ) : (
-          <p style={{ color: '#888', fontSize: '13px' }}>No assets generated.</p>
+          <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>No assets generated.</p>
         )}
-      </section>
+      </Card>
 
-      {/* ── Status buttons ──────────────────────────────────────────────── */}
-      <section style={{ marginBottom: '28px' }}>
-        <h2 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>
-          Action
-        </h2>
+      {/* ── Action ─────────────────────────────────────────────────────── */}
+      <Card style={{ marginBottom: '16px' }}>
+        <SectionHeading>Action</SectionHeading>
         <StatusButtons jobId={id} initialStatus={reviewStatus === 'new' ? null : reviewStatus as 'shortlist' | 'applied' | 'skip'} />
-      </section>
+      </Card>
 
-      {/* ── Raw description ─────────────────────────────────────────────── */}
-      <details style={{ marginBottom: '28px' }}>
-        <summary style={{ cursor: 'pointer', fontSize: '13px', color: '#555', userSelect: 'none' }}>
+      {/* ── Full description ───────────────────────────────────────────── */}
+      <details style={{ marginBottom: '8px' }}>
+        <summary style={{
+          cursor: 'pointer',
+          fontSize: '12px',
+          color: '#555',
+          userSelect: 'none',
+          padding: '8px 0',
+          fontWeight: '500',
+        }}>
           Full Description
         </summary>
         <pre style={{
@@ -231,11 +300,12 @@ export default async function JobDetailPage({
           fontSize: '12px',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
-          background: '#f9fafb',
-          padding: '12px',
-          borderRadius: '4px',
-          lineHeight: '1.6',
-          border: '1px solid #e5e7eb',
+          background: '#1e1e1e',
+          padding: '16px',
+          borderRadius: '10px',
+          lineHeight: '1.7',
+          border: '1px solid #2a2a2a',
+          color: '#888',
         }}>
           {String(raw?.description ?? '')}
         </pre>

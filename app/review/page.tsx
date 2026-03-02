@@ -30,9 +30,9 @@ const LIMIT          = 50;
 
 const TIER_FILTERS = [
   { label: 'All A+B+C', value: 'A,B,C' },
-  { label: 'Tier A',  value: 'A'   },
-  { label: 'Tier B',  value: 'B'   },
-  { label: 'Tier C',  value: 'C'   },
+  { label: 'Tier A',    value: 'A'     },
+  { label: 'Tier B',    value: 'B'     },
+  { label: 'Tier C',    value: 'C'     },
 ];
 
 const STATUS_FILTERS = [
@@ -50,10 +50,18 @@ function queueUrl(tiers: string, status: string, offset: number): string {
   return `/review?${p.toString()}`;
 }
 
-const FILTER_LINK = (active: boolean): React.CSSProperties => ({
-  textDecoration: active ? 'none' : 'underline',
-  fontWeight:     active ? 'bold' : 'normal',
-  color:          active ? '#000' : '#555',
+const PILL = (active: boolean): React.CSSProperties => ({
+  display: 'inline-block',
+  padding: '4px 14px',
+  borderRadius: '20px',
+  fontSize: '12px',
+  fontWeight: active ? '600' : '400',
+  textDecoration: 'none',
+  backgroundColor: active ? '#f1f5f9' : 'transparent',
+  color: active ? '#0f172a' : '#64748b',
+  border: '1px solid',
+  borderColor: active ? '#f1f5f9' : '#334155',
+  whiteSpace: 'nowrap' as const,
 });
 
 export default async function ReviewPage({
@@ -113,73 +121,110 @@ export default async function ReviewPage({
   const hasPrev = offset > 0;
 
   return (
-    <main style={{ fontFamily: 'monospace', padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
-      <h1 style={{ fontSize: '20px', marginBottom: '20px' }}>MatchPilot — Review Queue</h1>
-
-      {/* Tier filters */}
-      <div style={{ display: 'flex', gap: '20px', marginBottom: '10px', fontSize: '13px' }}>
-        {TIER_FILTERS.map(({ label, value }) => (
-          <Link key={value} href={queueUrl(value, activeStatus, 0)} style={FILTER_LINK(activeTiers === value)}>
-            {label}
-          </Link>
-        ))}
+    <main>
+      {/* Page header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div>
+          <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#f1f5f9', margin: '0 0 2px' }}>
+            Review Queue
+          </h1>
+          <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>
+            {totalCount > 0 ? `${totalCount} jobs` : 'No jobs'}
+          </p>
+        </div>
       </div>
 
-      {/* Status filters */}
-      <div style={{ display: 'flex', gap: '20px', marginBottom: '16px', fontSize: '13px' }}>
-        {STATUS_FILTERS.map(({ label, value }) => (
-          <Link key={value} href={queueUrl(activeTiers, value, 0)} style={FILTER_LINK(activeStatus === value)}>
-            {label}
-          </Link>
-        ))}
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' as const }}>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
+          {TIER_FILTERS.map(({ label, value }) => (
+            <Link key={value} href={queueUrl(value, activeStatus, 0)} style={PILL(activeTiers === value)}>
+              {label}
+            </Link>
+          ))}
+        </div>
+        <div style={{ width: '1px', backgroundColor: '#2a2a2a', margin: '0 4px' }} />
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
+          {STATUS_FILTERS.map(({ label, value }) => (
+            <Link key={value} href={queueUrl(activeTiers, value, 0)} style={PILL(activeStatus === value)}>
+              {label}
+            </Link>
+          ))}
+        </div>
       </div>
 
       {fetchError && (
-        <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '12px' }}>
+        <p style={{ color: '#f87171', fontSize: '13px', marginBottom: '12px' }}>
           Error: {fetchError}
         </p>
       )}
 
-      {/* Count + pagination */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', fontSize: '12px', color: '#888' }}>
+      {/* Pagination row */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '12px',
+        fontSize: '12px',
+        color: '#475569',
+      }}>
         <span>
-          {totalCount === 0 ? '0 jobs' : `Showing ${from}-${to} of ${totalCount} jobs`}
+          {totalCount === 0 ? '—' : `Showing ${from}–${to} of ${totalCount}`}
         </span>
-        <div style={{ display: 'flex', gap: '16px' }}>
+        <div style={{ display: 'flex', gap: '12px' }}>
           {hasPrev && (
-            <Link href={queueUrl(activeTiers, activeStatus, Math.max(0, offset - LIMIT))} style={{ color: '#1d4ed8' }}>
+            <Link href={queueUrl(activeTiers, activeStatus, Math.max(0, offset - LIMIT))} style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '500' }}>
               ← Prev
             </Link>
           )}
           {hasNext && (
-            <Link href={queueUrl(activeTiers, activeStatus, offset + LIMIT)} style={{ color: '#1d4ed8' }}>
+            <Link href={queueUrl(activeTiers, activeStatus, offset + LIMIT)} style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '500' }}>
               Next →
             </Link>
           )}
         </div>
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-        <thead>
-          <tr style={{ borderBottom: '2px solid #000', textAlign: 'left' }}>
-            {['Tier', 'Score', 'Status', 'Company', 'Title', 'Location', 'Remote', 'Posted'].map((h) => (
-              <th key={h} style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((job: JobRow) => (
-            <TableRow key={String(job.job_id)} job={job} />
-          ))}
-          {jobs.length === 0 && (
-            <tr>
-              <td colSpan={8} style={{ padding: '20px 10px', color: '#888', textAlign: 'center' }}>
-                No jobs found.
-              </td>
+      {/* Table card */}
+      <div style={{
+        backgroundColor: '#1e1e1e',
+        borderRadius: '10px',
+        border: '1px solid #2a2a2a',
+        overflow: 'hidden',
+      }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+          <thead>
+            <tr style={{ backgroundColor: '#181818', borderBottom: '1px solid #2a2a2a' }}>
+              {['Tier', 'Score', 'Status', 'Company', 'Title', 'Location', 'Remote', 'Posted'].map((h) => (
+                <th key={h} style={{
+                  padding: '10px 14px',
+                  whiteSpace: 'nowrap',
+                  textAlign: 'left',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: '#475569',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                }}>
+                  {h}
+                </th>
+              ))}
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {jobs.map((job: JobRow) => (
+              <TableRow key={String(job.job_id)} job={job} />
+            ))}
+            {jobs.length === 0 && (
+              <tr>
+                <td colSpan={8} style={{ padding: '48px 14px', color: '#475569', textAlign: 'center', fontSize: '13px' }}>
+                  No jobs found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

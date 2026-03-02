@@ -6,17 +6,17 @@ import type { JobRow } from '@/lib/reviewContract';
 import React from 'react';
 
 const TIER_STYLES: Record<string, React.CSSProperties> = {
-  A:      { backgroundColor: '#dcfce7', color: '#16a34a', borderRadius: '4px', padding: '2px 6px', fontWeight: 'bold' },
-  B:      { backgroundColor: '#e0f2fe', color: '#2563eb', borderRadius: '4px', padding: '2px 6px', fontWeight: 'bold' },
-  C:      { backgroundColor: '#fff7ed', color: '#d97706', borderRadius: '4px', padding: '2px 6px', fontWeight: 'bold' },
-  reject: { backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '4px', padding: '2px 6px', fontWeight: 'bold' },
+  A:      { backgroundColor: '#14532d', color: '#86efac', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px' },
+  B:      { backgroundColor: '#1e3a5f', color: '#93c5fd', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px' },
+  C:      { backgroundColor: '#451a03', color: '#fcd34d', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px' },
+  reject: { backgroundColor: '#450a0a', color: '#fca5a5', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px' },
 };
 
 const STATUS_STYLES: Record<string, React.CSSProperties> = {
-  new:       { backgroundColor: '#e5e7eb', color: '#4b5563', borderRadius: '4px', padding: '2px 6px', fontSize: '11px' },
-  shortlist: { backgroundColor: '#dcfce7', color: '#16a34a', borderRadius: '4px', padding: '2px 6px', fontSize: '11px' },
-  applied:   { backgroundColor: '#e0f2fe', color: '#2563eb', borderRadius: '4px', padding: '2px 6px', fontSize: '11px' },
-  skip:      { backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '4px', padding: '2px 6px', fontSize: '11px' },
+  new:       { backgroundColor: '#2a2a2a', color: '#888', borderRadius: '5px', padding: '2px 8px', fontSize: '11px', fontWeight: '500' },
+  shortlist: { backgroundColor: '#14532d', color: '#86efac', borderRadius: '5px', padding: '2px 8px', fontSize: '11px', fontWeight: '500' },
+  applied:   { backgroundColor: '#1e3a5f', color: '#93c5fd', borderRadius: '5px', padding: '2px 8px', fontSize: '11px', fontWeight: '500' },
+  skip:      { backgroundColor: '#450a0a', color: '#fca5a5', borderRadius: '5px', padding: '2px 8px', fontSize: '11px', fontWeight: '500' },
 };
 
 export function TableRow({ job }: { job: JobRow }) {
@@ -28,38 +28,39 @@ export function TableRow({ job }: { job: JobRow }) {
 
   return (
     <tr
-      style={{
-        borderBottom: '1px solid #e5e7eb',
-        cursor: 'pointer',
-      }}
-      className="hover:bg-gray-50"
+      style={{ borderBottom: '1px solid #222', cursor: 'pointer', backgroundColor: '#1e1e1e' }}
+      className="hover:bg-neutral-700"
       onClick={handleClick}
     >
-      <td style={{ padding: '7px 10px' }}>
+      <td style={{ padding: '11px 14px' }}>
         <span style={TIER_STYLES[String(job.tier)] ?? {}}>
           {String(job.tier)}
         </span>
       </td>
-      <td style={{ padding: '7px 10px' }}>{String(job.score)}</td>
-      <td style={{ padding: '7px 10px' }}>
+      <td style={{ padding: '11px 14px', fontWeight: '600', color: '#e8e8e8' }}>
+        {String(job.score)}
+      </td>
+      <td style={{ padding: '11px 14px' }}>
         <span style={STATUS_STYLES[String(job.status ?? 'new')] ?? {}}>
           {String(job.status ?? 'new')}
         </span>
       </td>
-      <td style={{ padding: '7px 10px' }}>{String(job.company ?? '—')}</td>
-      <td style={{ padding: '7px 10px' }}>
+      <td style={{ padding: '11px 14px', color: '#ccc', fontWeight: '500' }}>
+        {String(job.company ?? '—')}
+      </td>
+      <td style={{ padding: '11px 14px' }}>
         <Link
           href={`/review/${job.job_id}`}
-          style={{ color: '#1d4ed8', textDecoration: 'none' }}
+          style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '500' }}
           className="hover:underline"
-          onClick={(e: React.MouseEvent) => e.stopPropagation()} // Prevents row's onClick from firing
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
         >
           {String(job.title ?? '—')}
         </Link>
       </td>
-      <td style={{ padding: '7px 10px', color: '#555' }}>{String(job.location ?? '—')}</td>
-      <td style={{ padding: '7px 10px', color: '#555' }}>{String(job.remote ?? '—')}</td>
-      <td style={{ padding: '7px 10px', color: '#555' }}>
+      <td style={{ padding: '11px 14px', color: '#888' }}>{String(job.location ?? '—')}</td>
+      <td style={{ padding: '11px 14px', color: '#888' }}>{String(job.remote ?? '—')}</td>
+      <td style={{ padding: '11px 14px', color: '#555' }}>
         {job.posted_at
           ? new Date(String(job.posted_at)).toLocaleDateString('en-GB')
           : '—'}
