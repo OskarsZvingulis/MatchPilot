@@ -1,11 +1,12 @@
 import OpenAI from 'openai';
 
-const apiKey = process.env.OPENAI_API_KEY;
-if (!apiKey) {
-  throw new Error('OPENAI_API_KEY environment variable is not set');
+function getClient(): OpenAI {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY environment variable is not set');
+  }
+  return new OpenAI({ apiKey });
 }
-
-const client = new OpenAI({ apiKey });
 
 // ─── Allowed enum values ───────────────────────────────────────────────────────
 
@@ -154,7 +155,7 @@ Return JSON:
 // ─── scoreJob ─────────────────────────────────────────────────────────────────
 
 export async function scoreJob(description: string): Promise<JobScore> {
-  const response = await client.chat.completions.create({
+  const response = await getClient().chat.completions.create({
     model: 'gpt-4o',
     response_format: { type: 'json_object' },
     messages: [
@@ -247,7 +248,7 @@ export async function generateAssets(
   company: string,
   description: string,
 ): Promise<JobAssets> {
-  const response = await client.chat.completions.create({
+  const response = await getClient().chat.completions.create({
     model: 'gpt-4o',
     response_format: { type: 'json_object' },
     messages: [
