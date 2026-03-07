@@ -138,5 +138,4 @@ async function worker(req: NextRequest) {
   }
 }
 
-export const GET = worker;
 export const POST = worker;

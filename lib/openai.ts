@@ -206,6 +206,22 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
   data.tech_mismatch = tml === 'major';
   // ────────────────────────────────────────────────────────────────────────────
 
+  // ── Region detection ───────────────────────────────────────────────────────
+  const descriptionLower = description.toLowerCase();
+
+  const isUS =
+    data.visa_restriction === 'us_only' ||
+    descriptionLower.includes('united states') ||
+    descriptionLower.includes('usa') ||
+    descriptionLower.includes('us only') ||
+    descriptionLower.includes('u.s.');
+
+  // ── US onsite cap (UK onsite allowed to score freely) ──────────────────────
+  if (data.onsite_required === true && isUS) {
+    data.score = Math.min(data.score as number, 40);
+  }
+  // ───────────────────────────────────────────────────────────────────────────
+
   if (typeof data.role_category !== 'string' || !(ROLE_CATEGORIES as readonly string[]).includes(data.role_category)) {
     throw new Error(
       `scoreJob: invalid "role_category" "${data.role_category}" — must be one of: ${ROLE_CATEGORIES.join(', ')}`,

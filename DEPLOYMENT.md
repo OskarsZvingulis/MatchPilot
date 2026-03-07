@@ -21,3 +21,7 @@
    - GET /api/health
    - POST /api/worker/score (with x-worker-secret header)
    - Visit /review (should redirect to /login)
+
+## Worker Trigger
+The worker is triggered by n8n on Railway via HTTP POST to /api/worker/score.
+No Vercel cron required. Configure n8n to call the worker after each ingestion run.

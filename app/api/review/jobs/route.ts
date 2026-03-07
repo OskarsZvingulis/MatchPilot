@@ -6,6 +6,18 @@ const VALID_STATUSES = new Set(['new', 'shortlist', 'applied', 'skip']);
 const DEFAULT_LIMIT  = 50;
 const MAX_LIMIT      = 200;
 
+const VALID_SORT_BY  = new Set(['posted_at', 'location', 'company', 'score', 'tier']);
+const VALID_SORT_DIR = new Set(['asc', 'desc']);
+
+// Whitelist mapping for security
+const SORT_COLUMN_MAP: Record<string, string> = {
+  posted_at: 'j.posted_at',
+  location:  'j.location',
+  company:   'j.company',
+  score:     's.score',
+  tier:      's.tier',
+};
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
@@ -39,7 +51,47 @@ export async function GET(req: NextRequest) {
   const statusFilter: string | null =
     statusParam && VALID_STATUSES.has(statusParam) ? statusParam : null;
 
+  // Parse sorting params
+  const sortBy  = searchParams.get('sort_by') ?? 'score';
+  const sortDir = searchParams.get('sort_dir') ?? 'desc';
+
+  const validSortBy = VALID_SORT_BY.has(sortBy) ? sortBy : 'score';
+  const validSortDir = VALID_SORT_DIR.has(sortDir) ? sortDir : 'desc';
+
   const sql = getDb();
+
+  // Dynamically build ORDER BY clause
+  let orderByClause;
+  const primarySortCol = SORT_COLUMN_MAP[validSortBy];
+
+  if (validSortBy === 'tier') {
+    const direction = validSortDir === 'asc' ? sql`ASC` : sql`DESC`;
+    orderByClause = sql`
+      ORDER BY
+        CASE s.tier
+          WHEN 'A' THEN 1
+          WHEN 'B' THEN 2
+          WHEN 'C' THEN 3
+          ELSE 4
+        END ${direction},
+        s.score DESC,
+        j.posted_at DESC NULLS LAST
+    `;
+  } else {
+    const primaryDirection = validSortDir === 'asc' ? sql`ASC` : sql`DESC`;
+    // For text-based fields, add a secondary sort to keep order deterministic
+    const secondarySort = (validSortBy === 'company' || validSortBy === 'location')
+      ? sql`, s.score DESC`
+      : sql``;
+      
+    // Handle NULLS for posted_at
+    const nullsHandling = validSortBy === 'posted_at' ? sql`NULLS LAST` : sql``;
+
+    orderByClause = sql`
+      ORDER BY ${sql(primarySortCol)} ${primaryDirection} ${nullsHandling} ${secondarySort}, j.ingested_at DESC
+    `;
+  }
+
 
   try {
     const rows = await sql`
@@ -66,16 +118,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN job_review r ON r.job_id = s.job_id
       WHERE (${tiers}::text[] IS NULL OR s.tier = ANY (${tiers}))
         AND (${statusFilter}::text IS NULL OR COALESCE(r.status, 'new') = ${statusFilter}::text)
-      ORDER BY
-        CASE s.tier
-          WHEN 'A' THEN 1
-          WHEN 'B' THEN 2
-          WHEN 'C' THEN 3
-          ELSE 4
-        END ASC,
-        s.score DESC,
-        j.posted_at DESC NULLS LAST,
-        j.ingested_at DESC
+      ${orderByClause}
       LIMIT ${limit}
       OFFSET ${offset}
     `;

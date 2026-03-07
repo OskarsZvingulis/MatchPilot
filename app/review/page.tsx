@@ -44,10 +44,64 @@ const STATUS_FILTERS = [
   { label: 'Skip',      value: 'skip'      },
 ];
 
-function queueUrl(tiers: string, status: string, offset: number): string {
-  const p = new URLSearchParams({ tiers, status });
-  if (offset > 0) p.set('offset', String(offset));
+function queueUrl(params: {
+  tiers: string;
+  status: string;
+  offset: number;
+  sortBy?: string;
+  sortDir?: string;
+}): string {
+  const p = new URLSearchParams({
+    tiers: params.tiers,
+    status: params.status,
+  });
+
+  if (params.offset > 0) p.set('offset', String(params.offset));
+  if (params.sortBy) p.set('sort_by', params.sortBy);
+  if (params.sortDir) p.set('sort_dir', params.sortDir);
+
   return `/review?${p.toString()}`;
+}
+
+function SortableHeader({
+  label,
+  value,
+  sortBy,
+  sortDir,
+  url,
+}: {
+  label: string;
+  value: string;
+  sortBy: string;
+  sortDir: string;
+  url: string;
+}) {
+  const isSorting = sortBy === value;
+  const newSortDir = isSorting ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc';
+  const sortIndicator = isSorting ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
+  const newUrl = new URL(url, 'http://localhost');
+  newUrl.searchParams.set('sort_by', value);
+  newUrl.searchParams.set('sort_dir', newSortDir);
+  newUrl.searchParams.set('offset', '0');
+
+
+  return (
+    <th style={{
+      padding: '10px 14px',
+      whiteSpace: 'nowrap',
+      textAlign: 'left',
+      fontSize: '11px',
+      fontWeight: '600',
+      color: '#6b7280',
+      textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+    }}>
+      <Link href={newUrl.search} style={{ textDecoration: 'none', color: 'inherit' }}>
+        {label}{sortIndicator}
+      </Link>
+    </th>
+  );
 }
 
 const PILL = (active: boolean): React.CSSProperties => ({
@@ -81,13 +135,27 @@ const REJECT_PILL = (active: boolean): React.CSSProperties => ({
 export default async function ReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tiers?: string; status?: string; offset?: string }>;
+  searchParams: Promise<{
+    tiers?: string;
+    status?: string;
+    offset?: string;
+    sort_by?: string;
+    sort_dir?: string;
+  }>;
 }) {
-  const { tiers: tiersParam, status: statusParam, offset: offsetParam } = await searchParams;
+  const {
+    tiers: tiersParam,
+    status: statusParam,
+    offset: offsetParam,
+    sort_by: sortByParam,
+    sort_dir: sortDirParam,
+  } = await searchParams;
 
   const activeTiers  = tiersParam ?? 'A,B,C,reject';
   const activeStatus = statusParam && VALID_STATUSES.has(statusParam) ? statusParam : 'new';
   const offset       = Math.max(0, parseInt(offsetParam ?? '0', 10) || 0);
+  const sortBy       = sortByParam ?? 'score';
+  const sortDir      = sortDirParam ?? 'desc';
 
   const tiers = activeTiers
     .split(',')
@@ -99,9 +167,11 @@ export default async function ReviewPage({
   const baseUrl = getBaseUrl(hdrs);
 
   const apiUrl = new URL('/api/review/jobs', baseUrl);
-  apiUrl.searchParams.set('tiers',  validTiers.join(','));
-  apiUrl.searchParams.set('limit',  String(LIMIT));
-  apiUrl.searchParams.set('offset', String(offset));
+  apiUrl.searchParams.set('tiers',    validTiers.join(','));
+  apiUrl.searchParams.set('limit',    String(LIMIT));
+  apiUrl.searchParams.set('offset',   String(offset));
+  apiUrl.searchParams.set('sort_by',  sortBy);
+  apiUrl.searchParams.set('sort_dir', sortDir);
   if (activeStatus !== 'all') apiUrl.searchParams.set('status', activeStatus);
 
   const cookieHeader = headerValue(hdrs, 'cookie');
@@ -152,7 +222,11 @@ export default async function ReviewPage({
       <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' as const }}>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
           {TIER_FILTERS.map(({ label, value, isReject }) => (
-            <Link key={value} href={queueUrl(value, activeStatus, 0)} style={isReject ? REJECT_PILL(activeTiers === value) : PILL(activeTiers === value)}>
+            <Link
+              key={value}
+              href={queueUrl({ tiers: value, status: activeStatus, offset: 0, sortBy, sortDir })}
+              style={isReject ? REJECT_PILL(activeTiers === value) : PILL(activeTiers === value)}
+            >
               {label}
             </Link>
           ))}
@@ -160,7 +234,11 @@ export default async function ReviewPage({
         <div style={{ width: '1px', backgroundColor: '#2a2a2a', margin: '0 4px' }} />
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
           {STATUS_FILTERS.map(({ label, value }) => (
-            <Link key={value} href={queueUrl(activeTiers, value, 0)} style={PILL(activeStatus === value)}>
+            <Link
+              key={value}
+              href={queueUrl({ tiers: activeTiers, status: value, offset: 0, sortBy, sortDir })}
+              style={PILL(activeStatus === value)}
+            >
               {label}
             </Link>
           ))}
@@ -187,12 +265,18 @@ export default async function ReviewPage({
         </span>
         <div style={{ display: 'flex', gap: '12px' }}>
           {hasPrev && (
-            <Link href={queueUrl(activeTiers, activeStatus, Math.max(0, offset - LIMIT))} style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '500' }}>
+            <Link
+              href={queueUrl({ tiers: activeTiers, status: activeStatus, offset: Math.max(0, offset - LIMIT), sortBy, sortDir })}
+              style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '500' }}
+            >
               ← Prev
             </Link>
           )}
           {hasNext && (
-            <Link href={queueUrl(activeTiers, activeStatus, offset + LIMIT)} style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '500' }}>
+            <Link
+              href={queueUrl({ tiers: activeTiers, status: activeStatus, offset: offset + LIMIT, sortBy, sortDir })}
+              style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '500' }}
+            >
               Next →
             </Link>
           )}
@@ -209,20 +293,14 @@ export default async function ReviewPage({
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
             <tr style={{ backgroundColor: '#141414', borderBottom: '1px solid #2a2a2a' }}>
-              {['Tier', 'Score', 'Status', 'Company', 'Title', 'Location', 'Remote', 'Posted'].map((h) => (
-                <th key={h} style={{
-                  padding: '10px 14px',
-                  whiteSpace: 'nowrap',
-                  textAlign: 'left',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  color: '#6b7280',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                }}>
-                  {h}
-                </th>
-              ))}
+              <SortableHeader label="Tier" value="tier" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
+              <SortableHeader label="Score" value="score" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
+              <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Status</th>
+              <SortableHeader label="Company" value="company" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
+              <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Title</th>
+              <SortableHeader label="Location" value="location" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
+              <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Remote</th>
+              <SortableHeader label="Posted" value="posted_at" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
             </tr>
           </thead>
           <tbody>
