@@ -60,37 +60,27 @@ export async function GET(req: NextRequest) {
 
   const sql = getDb();
 
-  // Dynamically build ORDER BY clause
-  let orderByClause;
-  const primarySortCol = SORT_COLUMN_MAP[validSortBy];
+  const DEFAULT_ORDER_BY = sql`ORDER BY s.score DESC, j.ingested_at DESC`;
+  type OrderByClause = typeof DEFAULT_ORDER_BY;
 
-  if (validSortBy === 'tier') {
-    const direction = validSortDir === 'asc' ? sql`ASC` : sql`DESC`;
-    orderByClause = sql`
-      ORDER BY
-        CASE s.tier
-          WHEN 'A' THEN 1
-          WHEN 'B' THEN 2
-          WHEN 'C' THEN 3
-          ELSE 4
-        END ${direction},
-        s.score DESC,
-        j.posted_at DESC NULLS LAST
-    `;
-  } else {
-    const primaryDirection = validSortDir === 'asc' ? sql`ASC` : sql`DESC`;
-    // For text-based fields, add a secondary sort to keep order deterministic
-    const secondarySort = (validSortBy === 'company' || validSortBy === 'location')
-      ? sql`, s.score DESC`
-      : sql``;
-      
-    // Handle NULLS for posted_at
-    const nullsHandling = validSortBy === 'posted_at' ? sql`NULLS LAST` : sql``;
+  const TIER_SORT_ASC = sql`CASE s.tier WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END ASC`;
+  const TIER_SORT_DESC = sql`CASE s.tier WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END DESC`;
 
-    orderByClause = sql`
-      ORDER BY ${sql(primarySortCol)} ${primaryDirection} ${nullsHandling} ${secondarySort}, j.ingested_at DESC
-    `;
-  }
+  const ORDER_BY_MAP: Record<string, OrderByClause> = {
+    'score:desc':     DEFAULT_ORDER_BY,
+    'score:asc':      sql`ORDER BY s.score ASC, j.ingested_at DESC`,
+    'company:desc':   sql`ORDER BY j.company DESC, s.score DESC`,
+    'company:asc':    sql`ORDER BY j.company ASC, s.score DESC`,
+    'location:desc':  sql`ORDER BY j.location DESC, s.score DESC`,
+    'location:asc':   sql`ORDER BY j.location ASC, s.score DESC`,
+    'posted_at:desc': sql`ORDER BY j.posted_at DESC NULLS LAST, j.ingested_at DESC`,
+    'posted_at:asc':  sql`ORDER BY j.posted_at ASC NULLS LAST, j.ingested_at DESC`,
+    'tier:desc':      sql`ORDER BY ${TIER_SORT_DESC}, s.score DESC, j.posted_at DESC NULLS LAST`,
+    'tier:asc':       sql`ORDER BY ${TIER_SORT_ASC}, s.score DESC, j.posted_at DESC NULLS LAST`,
+  };
+
+  const sortKey = `${validSortBy}:${validSortDir}`;
+  const orderByClause = ORDER_BY_MAP[sortKey] ?? DEFAULT_ORDER_BY;
 
 
   try {
