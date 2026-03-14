@@ -301,6 +301,7 @@ export default async function ReviewPage({
               <SortableHeader label="Location" value="location" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Remote</th>
               <SortableHeader label="Posted" value="posted_at" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
+              <SortableHeader label="Added" value="scored_at" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
             </tr>
           </thead>
           <tbody>
@@ -309,7 +310,7 @@ export default async function ReviewPage({
             ))}
             {jobs.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ padding: '48px 14px', color: '#6b7280', textAlign: 'center', fontSize: '13px' }}>
+                <td colSpan={9} style={{ padding: '48px 14px', color: '#6b7280', textAlign: 'center', fontSize: '13px' }}>
                   No jobs found.
                 </td>
               </tr>

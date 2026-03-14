@@ -11,6 +11,7 @@ export type JobRow = {
   location?: string | null;
   remote?: string | null;
   posted_at?: string | null;
+  scored_at?: string | null;
   status?: ReviewStatus | null;
 };
 

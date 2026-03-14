@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS jobs_queue (
   status     TEXT        NOT NULL DEFAULT 'pending', -- pending | processing | done | failed
   attempts   INT         NOT NULL DEFAULT 0,
   last_error TEXT,
+  locked_at  TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

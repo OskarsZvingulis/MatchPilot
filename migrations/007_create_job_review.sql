@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS job_review (
+  job_id     UUID PRIMARY KEY REFERENCES jobs_raw(id) ON DELETE CASCADE,
+  status     TEXT NOT NULL DEFAULT 'new',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

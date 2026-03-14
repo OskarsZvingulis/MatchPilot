@@ -65,6 +65,11 @@ export function TableRow({ job }: { job: JobRow }) {
           ? new Date(String(job.posted_at)).toLocaleDateString('en-GB')
           : '—'}
       </td>
+      <td style={{ padding: '11px 14px', color: '#555' }}>
+        {job.scored_at
+          ? new Date(String(job.scored_at)).toLocaleDateString('en-GB')
+          : '—'}
+      </td>
     </tr>
   );
 }

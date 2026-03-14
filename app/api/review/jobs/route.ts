@@ -6,16 +6,17 @@ const VALID_STATUSES = new Set(['new', 'shortlist', 'applied', 'skip']);
 const DEFAULT_LIMIT  = 50;
 const MAX_LIMIT      = 200;
 
-const VALID_SORT_BY  = new Set(['posted_at', 'location', 'company', 'score', 'tier']);
+const VALID_SORT_BY  = new Set(['posted_at', 'location', 'company', 'score', 'tier', 'scored_at']);
 const VALID_SORT_DIR = new Set(['asc', 'desc']);
 
 // Whitelist mapping for security
 const SORT_COLUMN_MAP: Record<string, string> = {
-  posted_at: 'j.posted_at',
-  location:  'j.location',
-  company:   'j.company',
-  score:     's.score',
-  tier:      's.tier',
+  posted_at:  'j.posted_at',
+  location:   'j.location',
+  company:    'j.company',
+  score:      's.score',
+  tier:       's.tier',
+  scored_at:  's.created_at',
 };
 
 export async function GET(req: NextRequest) {
@@ -77,6 +78,8 @@ export async function GET(req: NextRequest) {
     'posted_at:asc':  sql`ORDER BY j.posted_at ASC NULLS LAST, j.ingested_at DESC`,
     'tier:desc':      sql`ORDER BY ${TIER_SORT_DESC}, s.score DESC, j.posted_at DESC NULLS LAST`,
     'tier:asc':       sql`ORDER BY ${TIER_SORT_ASC}, s.score DESC, j.posted_at DESC NULLS LAST`,
+    'scored_at:desc': sql`ORDER BY s.created_at DESC NULLS LAST, s.score DESC`,
+    'scored_at:asc':  sql`ORDER BY s.created_at ASC NULLS LAST, s.score DESC`,
   };
 
   const sortKey = `${validSortBy}:${validSortDir}`;
@@ -99,6 +102,7 @@ export async function GET(req: NextRequest) {
         j.url,
         j.posted_at,
         j.ingested_at,
+        s.created_at AS scored_at,
         EXISTS (
           SELECT 1 FROM job_assets ja WHERE ja.job_id = s.job_id
         ) AS has_assets,
