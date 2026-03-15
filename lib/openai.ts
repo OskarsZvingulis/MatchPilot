@@ -25,7 +25,7 @@ const REMOTE_FEASIBILITIES = ['good', 'maybe', 'no'] as const;
 
 const VISA_RESTRICTIONS = ['none', 'uk_only', 'us_only', 'eu_only', 'unknown'] as const;
 
-const SALARY_CURRENCIES = ['GBP', 'EUR', 'USD', 'unknown'] as const;
+const SALARY_CURRENCIES = ['GBP', 'EUR', 'USD', 'CAD', 'AUD', 'unknown'] as const;
 
 const TECH_MISMATCH_LEVELS = ['none', 'some', 'major'] as const;
 const TECH_MISMATCH_LEVEL_SET = new Set<string>(TECH_MISMATCH_LEVELS);
