@@ -1,0 +1,110 @@
+{
+  "name": "Adzuna Job Ingestion",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] } },
+      "id": "schedule-adzuna",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [1].map(page => ({ json: { page } }));"
+      },
+      "id": "pages-adzuna",
+      "name": "Pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-176, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.adzuna.com/v1/api/jobs/gb/search/{{$json.page}}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "app_id", "value": "YOUR_ADZUNA_APP_ID" },
+            { "name": "app_key", "value": "YOUR_ADZUNA_API_KEY" },
+            { "name": "what", "value": "software engineer developer" },
+            { "name": "results_per_page", "value": "50" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-adzuna",
+      "name": "Fetch Adzuna Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [48, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobs = $json.results || [];\nreturn jobs.map(j => ({\n  json: {\n    source: 'adzuna',\n    external_id: String(j.id ?? ''),\n    company: j.company?.display_name || '',\n    title: j.title || '',\n    location: j.location?.display_name || '',\n    remote: (j.title + ' ' + (j.description || '')).toLowerCase().includes('remote') ? 'remote' : 'unknown',\n    url: j.redirect_url || '',\n    description: (j.description || '').slice(0, 5000),\n    posted_at: j.created ? new Date(j.created).toISOString() : null,\n  }\n}));"
+      },
+      "id": "normalize-adzuna",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [272, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "function simpleHash(str) {\n  let hash = 0;\n  for (let i = 0; i < str.length; i++) {\n    hash = ((hash << 5) - hash) + str.charCodeAt(i);\n    hash |= 0;\n  }\n  return Math.abs(hash).toString(16).padStart(8, '0');\n}\nreturn items.map(({ json }) => {\n  const base = [json.source, json.external_id, json.company, json.title, json.url].join('|');\n  return { json: { ...json, content_hash: simpleHash(base) } };\n});"
+      },
+      "id": "hash-adzuna",
+      "name": "Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [496, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO jobs_raw (\n  external_id, company, title, location, remote, url, description, posted_at, source, content_hash\n) VALUES (\n  {{$json.external_id}},\n  '{{$json.company}}',\n  '{{$json.title}}',\n  '{{$json.location}}',\n  '{{$json.remote}}',\n  '{{$json.url}}',\n  '{{ $json.description.replace(/'/g, \"''\") }}',\n  '{{$json.posted_at}}',\n  '{{$json.source}}',\n  '{{$json.content_hash}}'\n)\nON CONFLICT (content_hash) DO NOTHING;\n\nINSERT INTO jobs_queue (job_id, status, attempts)\nSELECT id, 'pending', 0 FROM jobs_raw WHERE content_hash = '{{$json.content_hash}}'\nON CONFLICT DO NOTHING;",
+        "options": {}
+      },
+      "id": "insert-adzuna",
+      "name": "Insert into Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [720, 0],
+      "credentials": { "postgres": { "id": "5uGHZggZJZUexMBJ", "name": "Postgres account" } }
+    },
+    {
+      "parameters": { "jsCode": "return Array.from({length: 200}, (_, i) => ({ json: { i } }));" },
+      "id": "loop-adzuna",
+      "name": "Loop 200",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [944, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://matchpilot-production-a08d.up.railway.app/api/worker/score",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-worker-secret", "value": "3eb2bf26e739c83044d5b6c7ea851c4e4c7e6f58afd401f267fa98f78445e6bf" }] },
+        "options": { "timeout": 60000 }
+      },
+      "id": "worker-adzuna",
+      "name": "Trigger Worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1168, 0],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Pages", "type": "main", "index": 0 }]] },
+    "Pages": { "main": [[{ "node": "Fetch Adzuna Jobs", "type": "main", "index": 0 }]] },
+    "Fetch Adzuna Jobs": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Normalize": { "main": [[{ "node": "Hash", "type": "main", "index": 0 }]] },
+    "Hash": { "main": [[{ "node": "Insert into Postgres", "type": "main", "index": 0 }]] },
+    "Insert into Postgres": { "main": [[{ "node": "Loop 200", "type": "main", "index": 0 }]] },
+    "Loop 200": { "main": [[{ "node": "Trigger Worker", "type": "main", "index": 0 }]] }
+  }
+}

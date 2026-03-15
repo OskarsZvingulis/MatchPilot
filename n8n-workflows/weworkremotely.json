@@ -1,0 +1,87 @@
+{
+  "name": "We Work Remotely Job Ingestion",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] } },
+      "id": "schedule-wwr",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss",
+        "options": {}
+      },
+      "id": "fetch-wwr",
+      "name": "Fetch WWR Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-176, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const xml = $json.data || $json.body || Object.values($json)[0] || '';\nconst items = [];\nconst itemRegex = /<item>([\\s\\S]*?)<\\/item>/g;\nlet match;\nwhile ((match = itemRegex.exec(xml)) !== null) {\n  const item = match[1];\n  const get = (tag) => {\n    const m = item.match(new RegExp('<' + tag + '[^>]*><!\\\\[CDATA\\\\[([\\\\s\\\\S]*?)\\\\]\\\\]><\\/' + tag + '>'));\n    if (m) return m[1].trim();\n    const m2 = item.match(new RegExp('<' + tag + '[^>]*>([^<]*)<\\/' + tag + '>'));\n    return m2 ? m2[1].trim() : '';\n  };\n  const fullTitle = get('title');\n  const link = get('link') || '';\n  const desc = get('description').replace(/<[^>]*>/g, '').slice(0, 5000);\n  const pubDate = get('pubDate');\n  const parts = fullTitle.split(':');\n  const company = parts.length > 1 ? parts[0].trim() : '';\n  const jobTitle = parts.length > 1 ? parts.slice(1).join(':').trim() : fullTitle;\n  if (!jobTitle) continue;\n  items.push({ json: {\n    source: 'weworkremotely',\n    external_id: link,\n    company,\n    title: jobTitle,\n    location: 'remote',\n    remote: 'remote',\n    url: link,\n    description: desc,\n    posted_at: pubDate ? new Date(pubDate).toISOString() : null,\n  }});\n}\nreturn items;"
+      },
+      "id": "normalize-wwr",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [48, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "function simpleHash(str) {\n  let hash = 0;\n  for (let i = 0; i < str.length; i++) {\n    hash = ((hash << 5) - hash) + str.charCodeAt(i);\n    hash |= 0;\n  }\n  return Math.abs(hash).toString(16).padStart(8, '0');\n}\nreturn items.map(({ json }) => {\n  const base = [json.source, json.external_id, json.company, json.title, json.url].join('|');\n  return { json: { ...json, content_hash: simpleHash(base) } };\n});"
+      },
+      "id": "hash-wwr",
+      "name": "Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [272, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO jobs_raw (\n  external_id, company, title, location, remote, url, description, posted_at, source, content_hash\n) VALUES (\n  {{$json.external_id}},\n  '{{$json.company}}',\n  '{{$json.title}}',\n  '{{$json.location}}',\n  '{{$json.remote}}',\n  '{{$json.url}}',\n  '{{ $json.description.replace(/'/g, \"''\") }}',\n  '{{$json.posted_at}}',\n  '{{$json.source}}',\n  '{{$json.content_hash}}'\n)\nON CONFLICT (content_hash) DO NOTHING;\n\nINSERT INTO jobs_queue (job_id, status, attempts)\nSELECT id, 'pending', 0 FROM jobs_raw WHERE content_hash = '{{$json.content_hash}}'\nON CONFLICT DO NOTHING;",
+        "options": {}
+      },
+      "id": "insert-wwr",
+      "name": "Insert into Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [496, 0],
+      "credentials": { "postgres": { "id": "5uGHZggZJZUexMBJ", "name": "Postgres account" } }
+    },
+    {
+      "parameters": { "jsCode": "return Array.from({length: 100}, (_, i) => ({ json: { i } }));" },
+      "id": "loop-wwr",
+      "name": "Loop 100",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://matchpilot-production-a08d.up.railway.app/api/worker/score",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-worker-secret", "value": "3eb2bf26e739c83044d5b6c7ea851c4e4c7e6f58afd401f267fa98f78445e6bf" }] },
+        "options": {}
+      },
+      "id": "worker-wwr",
+      "name": "Trigger Worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [944, 0]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Fetch WWR Jobs", "type": "main", "index": 0 }]] },
+    "Fetch WWR Jobs": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Normalize": { "main": [[{ "node": "Hash", "type": "main", "index": 0 }]] },
+    "Hash": { "main": [[{ "node": "Insert into Postgres", "type": "main", "index": 0 }]] },
+    "Insert into Postgres": { "main": [[{ "node": "Loop 100", "type": "main", "index": 0 }]] },
+    "Loop 100": { "main": [[{ "node": "Trigger Worker", "type": "main", "index": 0 }]] }
+  }
+}
