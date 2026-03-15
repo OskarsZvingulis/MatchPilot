@@ -12,9 +12,13 @@ type Tier = 'A' | 'B' | 'C' | 'reject';
 async function checkUrlLiveness(url: string): Promise<'live' | 'expired' | 'unknown'> {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+    const timer = setTimeout(() => controller.abort(), 4000);
+
+    const isReed = url.includes('reed.co.uk');
+
     const res = await fetch(url, {
-      method: 'GET',
+      // HEAD is fast — no body download. Only use GET for Reed which needs body inspection.
+      method: isReed ? 'GET' : 'HEAD',
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0' },
       redirect: 'follow',
@@ -22,22 +26,18 @@ async function checkUrlLiveness(url: string): Promise<'live' | 'expired' | 'unkn
     clearTimeout(timer);
 
     if (res.status === 404 || res.status === 410) return 'expired';
-    if (res.status >= 400) return 'unknown'; // other errors — don't block
+    if (res.status >= 400) return 'unknown';
 
-    // Reed and some boards return 200 with an expired message in the body
-    const text = await res.text();
-    if (
-      text.includes('This job has expired') ||
-      text.includes('this job has expired') ||
-      text.includes('job-expired') ||
-      text.includes('this listing has expired')
-    ) {
-      return 'expired';
+    if (isReed) {
+      const text = await res.text();
+      if (text.includes('This job has expired') || text.includes('job-expired')) {
+        return 'expired';
+      }
     }
 
     return 'live';
   } catch {
-    return 'unknown'; // timeout, DNS failure, etc — proceed with scoring
+    return 'unknown';
   }
 }
 
@@ -190,9 +190,23 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
   // ── Tier A: notify ────────────────────────────────────
   if (tier === 'A') {
     try {
-      await sendTelegramMessage(
-        `🔥 MatchPilot Alert\n\nTier: ${tier}\nScore: ${finalScore}\nRole: ${scoring.role_category}\nBand: ${scoring.experience_band}\nRemote: ${scoring.remote_feasibility}\n\nJob ID: ${job_id}`,
-      );
+      const salaryLine = scoring.salary_min_gbp || scoring.salary_max_gbp
+        ? `\n💰 ${scoring.salary_min_gbp ? `£${scoring.salary_min_gbp.toLocaleString()}` : ''}${scoring.salary_max_gbp ? ` – £${scoring.salary_max_gbp.toLocaleString()}` : ''}`
+        : '';
+      const topReason = reasons[0] ? `\n📝 ${reasons[0]}` : '';
+      const msg = [
+        `🔥 Tier A — Score ${finalScore}`,
+        ``,
+        `${String(title ?? 'Unknown role')}`,
+        `${String(company ?? 'Unknown company')}`,
+        ``,
+        `${scoring.role_category} · ${scoring.experience_band} · ${scoring.remote_feasibility}`,
+        `${salaryLine}${topReason}`,
+        ``,
+        jobUrl ?? '',
+      ].join('\n').trim();
+
+      await sendTelegramMessage(msg);
       await sql`
         INSERT INTO job_notifications (job_id, channel)
         VALUES (${job_id}, 'telegram')
