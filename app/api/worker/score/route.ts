@@ -107,7 +107,7 @@ async function worker(req: NextRequest) {
         await sql`
           UPDATE jobs_queue
           SET status = 'failed',
-              last_error = ${scoringError instanceof Error ? scoringError.message : String(scoringError)},
+              error = ${scoringError instanceof Error ? scoringError.message : String(scoringError)},
               locked_at = NULL
           WHERE job_id = ${jobId}
         `;
