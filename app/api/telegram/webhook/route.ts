@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { ENV } from '@/lib/env';
-import { sendTelegramMessage } from '@/lib/telegram';
 
 export async function POST(req: NextRequest) {
   const secretToken = req.headers.get('X-Telegram-Bot-Api-Secret-Token');
@@ -47,24 +46,6 @@ export async function POST(req: NextRequest) {
           INSERT INTO job_apply (job_id, status) VALUES (${jobId}, 'queued')
           ON CONFLICT (job_id) DO NOTHING
         `;
-        const [jobAssets, jobRaw] = await Promise.all([
-          sql`SELECT cover_letter, intro_paragraph FROM job_assets WHERE job_id = ${jobId}`.then(
-            (rows) => rows[0]
-          ),
-          sql`SELECT url FROM jobs_raw WHERE id = ${jobId}`.then((rows) => rows[0]),
-        ]);
-
-        if (jobAssets && jobRaw) {
-          const { cover_letter, intro_paragraph } = jobAssets;
-          const { url } = jobRaw;
-          let message = `Apply to: ${url}\n\n${intro_paragraph}\n\n${cover_letter}`;
-          if (message.length > 4000) {
-            message = message.substring(0, 4000);
-          }
-          await sendTelegramMessage(message, {
-            disable_web_page_preview: true,
-          });
-        }
         break;
       case 'open':
         // No DB change, just acknowledge

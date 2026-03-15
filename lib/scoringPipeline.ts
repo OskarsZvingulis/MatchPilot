@@ -4,6 +4,43 @@ import { sendTelegramMessage } from '@/lib/telegram';
 
 type Tier = 'A' | 'B' | 'C' | 'reject';
 
+/**
+ * Check whether a job URL is still live.
+ * Returns 'expired' only when we have a confident signal (404/410, or Reed's expired page).
+ * Returns 'unknown' on any network/timeout error so we don't block scoring.
+ */
+async function checkUrlLiveness(url: string): Promise<'live' | 'expired' | 'unknown'> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      redirect: 'follow',
+    });
+    clearTimeout(timer);
+
+    if (res.status === 404 || res.status === 410) return 'expired';
+    if (res.status >= 400) return 'unknown'; // other errors — don't block
+
+    // Reed and some boards return 200 with an expired message in the body
+    const text = await res.text();
+    if (
+      text.includes('This job has expired') ||
+      text.includes('this job has expired') ||
+      text.includes('job-expired') ||
+      text.includes('this listing has expired')
+    ) {
+      return 'expired';
+    }
+
+    return 'live';
+  } catch {
+    return 'unknown'; // timeout, DNS failure, etc — proceed with scoring
+  }
+}
+
 function deriveTier(score: number): Tier {
   if (score >= 85) return 'A';
   if (score >= 75) return 'B';
@@ -43,7 +80,7 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
 
   // ── Fetch raw job ──────────────────────────────────────────────────────────
   const rawRows = await sql`
-    SELECT id, title, company, description, remote
+    SELECT id, title, company, description, remote, url
     FROM jobs_raw
     WHERE id = ${job_id}
     LIMIT 1
@@ -53,6 +90,34 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
   }
 
   const { title, company, description, remote } = rawRows[0];
+  const jobUrl: string | null = rawRows[0].url ?? null;
+
+  // ── URL liveness check ─────────────────────────────────────────────────────
+  if (jobUrl) {
+    const liveness = await checkUrlLiveness(jobUrl);
+    if (liveness === 'expired') {
+      await sql`
+        INSERT INTO jobs_scored (
+          job_id, role_category, score, experience_band, remote_feasibility,
+          reasons, red_flags, onsite_required, visa_restriction,
+          salary_min_gbp, salary_max_gbp, tech_mismatch, tier
+        )
+        VALUES (
+          ${job_id}, 'reject', 0, 'unknown', 'no',
+          ${JSON.stringify(['Job posting has expired'])},
+          ${JSON.stringify([])},
+          false, false, null, null, false, 'reject'
+        )
+        ON CONFLICT (job_id) DO NOTHING
+      `;
+      await sql`
+        INSERT INTO job_review (job_id, status)
+        VALUES (${job_id}, 'new')
+        ON CONFLICT (job_id) DO NOTHING
+      `;
+      return { job_id, tier: 'reject', score: 0, role_category: 'reject', skipped: true };
+    }
+  }
 
   // ── Score with LLM ─────────────────────────────────────────────────────────
   const scoring = await scoreJob(description ?? '', { remote });

@@ -25,17 +25,34 @@ export async function GET(
     return NextResponse.json({ error: `Job not found: ${id}` }, { status: 404 });
   }
 
-  // Fetch scored row, assets, and review status in parallel
-  const [scoredRows, assetRows, reviewRows] = await Promise.all([
+  // Fetch scored row and review status in parallel
+  const [scoredRows, reviewRows] = await Promise.all([
     sql`SELECT * FROM jobs_scored WHERE job_id = ${id} LIMIT 1`,
-    sql`SELECT * FROM job_assets  WHERE job_id = ${id} LIMIT 1`,
     sql`SELECT * FROM job_review  WHERE job_id = ${id} LIMIT 1`,
   ]);
 
   return NextResponse.json({
     raw:    rawRows[0],
     scored: scoredRows[0] ?? null,
-    assets: assetRows[0] ?? null,
     review: reviewRows[0] ?? null,
   });
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  if (!id) return NextResponse.json({ error: 'Missing job id' }, { status: 400 });
+
+  const sql = getDb();
+  // Deleting from jobs_raw cascades to jobs_queue (ON DELETE CASCADE).
+  // Explicitly clean scoring/review tables too in case FK constraints differ.
+  await sql`DELETE FROM job_notifications WHERE job_id = ${id}`;
+  await sql`DELETE FROM job_review       WHERE job_id = ${id}`;
+  await sql`DELETE FROM jobs_scored      WHERE job_id = ${id}`;
+  await sql`DELETE FROM jobs_queue       WHERE job_id = ${id}`;
+  await sql`DELETE FROM jobs_raw         WHERE id     = ${id}`;
+
+  return NextResponse.json({ ok: true });
 }

@@ -138,7 +138,6 @@ export default async function JobDetailPage({
   }
   const raw          = data.raw;
   const scored       = data.scored;
-  const assets       = data.assets;
   const reviewStatus = data.review?.status ?? 'new';
 
   const tierColor = scored ? (TIER_COLOR[String(scored.tier)] ?? '#cbd5e1') : '#cbd5e1';
@@ -252,53 +251,6 @@ export default async function JobDetailPage({
           </div>
         ) : (
           <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>Not yet scored.</p>
-        )}
-      </Card>
-
-      {/* ── Assets ─────────────────────────────────────────────────────── */}
-      <Card style={{ marginBottom: '16px' }}>
-        <SectionHeading>Assets</SectionHeading>
-        {assets ? (
-          <div>
-            <div style={{ marginBottom: '18px' }}>
-              <p style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Intro paragraph</p>
-              <p style={{ fontSize: '13px', lineHeight: '1.7', color: '#ccc', margin: 0 }}>{String(assets.intro_paragraph)}</p>
-            </div>
-            <div style={{ marginBottom: '18px' }}>
-              <p style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Cover letter</p>
-              <pre style={{
-                fontSize: '12px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                background: '#141414',
-                padding: '14px',
-                borderRadius: '7px',
-                margin: 0,
-                lineHeight: '1.7',
-                border: '1px solid #2a2a2a',
-                color: '#ccc',
-              }}>
-                {String(assets.cover_letter)}
-              </pre>
-            </div>
-            <div>
-              <p style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>CV emphasis</p>
-              <pre style={{
-                fontSize: '12px',
-                background: '#141414',
-                padding: '14px',
-                borderRadius: '7px',
-                margin: 0,
-                overflow: 'auto',
-                border: '1px solid #2a2a2a',
-                color: '#ccc',
-              }}>
-                {JSON.stringify(assets.cv_emphasis, null, 2)}
-              </pre>
-            </div>
-          </div>
-        ) : (
-          <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>No assets generated.</p>
         )}
       </Card>
 

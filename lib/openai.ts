@@ -55,18 +55,6 @@ export interface JobScore {
   tech_mismatch_level: TechMismatchLevel;
 }
 
-export interface CvEmphasis {
-  lead_project: string;
-  highlight_skills: string[];
-  talking_points: string[];
-}
-
-export interface JobAssets {
-  intro_paragraph: string;
-  cover_letter: string;
-  cv_emphasis: CvEmphasis;
-}
-
 // ─── Scoring prompts ──────────────────────────────────────────────────────────
 
 const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null. Set onsite_required to true only if the posting explicitly states onsite-only, 5 days in office, or no remote option. Set visa_restriction based on explicit language about right to work, citizenship requirements, or no sponsorship. For tech_mismatch_level: "none" means the stack aligns with the candidate's core skills (TypeScript, React, APIs, SaaS); "some" means partial match with notable gaps the candidate could ramp on; "major" means the core required stack is outside the candidate's experience (e.g. Django, Azure, DBA-heavy, Java-only, embedded, mobile-native). If unsure, choose "some". Set tech_mismatch to true only when tech_mismatch_level is "major".`;
@@ -140,37 +128,6 @@ tech_mismatch must be true if and only if tech_mismatch_level is "major".
 
 JOB DESCRIPTION:
 ${description}`;
-}
-
-// ─── Asset generation prompts ─────────────────────────────────────────────────
-
-const ASSETS_SYSTEM = `You are a strategic job application writer. Generate tailored, honest application materials. No fluff. No generic phrases like "I am excited to apply". Be specific and direct.`;
-
-function buildAssetsUserMessage(title: string, company: string, description: string): string {
-  return `Candidate profile:
-- Based in Latvia, UK settled status, fully eligible to work in the UK, willing to relocate
-- Core stack: TypeScript, JavaScript, React, Next.js, Node.js, REST APIs, Supabase, Postgres, SQL
-- Production SaaS: built API-driven onboarding platform and AIDQA (AI-assisted visual regression tool)
-- Strengths: API integrations, end-to-end debugging, business-to-technical translation, workflow-heavy systems
-- Fluent English, targeting remote roles, UK hybrid/onsite acceptable, open to contract
-
-Job title: ${title}
-Company: ${company}
-Job description:
-"""
-${description}
-"""
-
-Return JSON:
-{
-  "intro_paragraph": "2-3 sentence strategic opener tailored to this specific role",
-  "cover_letter": "3-4 paragraph cover letter, specific to this job and company",
-  "cv_emphasis": {
-    "lead_project": "onboarding_platform or aidqa",
-    "highlight_skills": ["skill1", "skill2"],
-    "talking_points": ["point1", "point2", "point3"]
-  }
-}`;
 }
 
 // ─── scoreJob ─────────────────────────────────────────────────────────────────
@@ -297,64 +254,3 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
   };
 }
 
-// ─── generateAssets ───────────────────────────────────────────────────────────
-
-export async function generateAssets(
-  title: string,
-  company: string,
-  description: string,
-): Promise<JobAssets> {
-  const response = await getClient().chat.completions.create({
-    model: 'gpt-4o',
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: ASSETS_SYSTEM },
-      { role: 'user', content: buildAssetsUserMessage(title, company, description) },
-    ],
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error('generateAssets: OpenAI returned an empty response');
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error(`generateAssets: Failed to parse JSON — ${content}`);
-  }
-
-  const data = parsed as Record<string, unknown>;
-
-  if (typeof data.intro_paragraph !== 'string') {
-    throw new Error('generateAssets: missing or invalid "intro_paragraph" (expected string)');
-  }
-  if (typeof data.cover_letter !== 'string') {
-    throw new Error('generateAssets: missing or invalid "cover_letter" (expected string)');
-  }
-
-  const cv = data.cv_emphasis as Record<string, unknown> | null | undefined;
-  if (!cv || typeof cv !== 'object') {
-    throw new Error('generateAssets: missing or invalid "cv_emphasis" (expected object)');
-  }
-  if (typeof cv.lead_project !== 'string') {
-    throw new Error('generateAssets: missing or invalid "cv_emphasis.lead_project" (expected string)');
-  }
-  if (!Array.isArray(cv.highlight_skills) || !cv.highlight_skills.every((s) => typeof s === 'string')) {
-    throw new Error('generateAssets: missing or invalid "cv_emphasis.highlight_skills" (expected string[])');
-  }
-  if (!Array.isArray(cv.talking_points) || !cv.talking_points.every((t) => typeof t === 'string')) {
-    throw new Error('generateAssets: missing or invalid "cv_emphasis.talking_points" (expected string[])');
-  }
-
-  return {
-    intro_paragraph: data.intro_paragraph,
-    cover_letter: data.cover_letter,
-    cv_emphasis: {
-      lead_project: cv.lead_project,
-      highlight_skills: cv.highlight_skills,
-      talking_points: cv.talking_points,
-    },
-  };
-}

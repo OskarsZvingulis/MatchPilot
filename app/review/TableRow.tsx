@@ -19,12 +19,29 @@ const STATUS_STYLES: Record<string, React.CSSProperties> = {
   skip:      { backgroundColor: '#450a0a', color: '#fca5a5', borderRadius: '5px', padding: '2px 8px', fontSize: '11px', fontWeight: '500' },
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  reed:            'Reed',
+  remotive:        'Remotive',
+  weworkremotely:  'WWR',
+  jobicy:          'Jobicy',
+  adzuna:          'Adzuna',
+};
+
 export function TableRow({ job }: { job: JobRow }) {
   const router = useRouter();
 
   const handleClick = () => {
     router.push(`/review/${job.job_id}`);
   };
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Delete this job?')) return;
+    await fetch(`/api/review/job/${job.job_id}`, { method: 'DELETE' });
+    router.refresh();
+  };
+
+  const sourceLabel = SOURCE_LABELS[String(job.source ?? '').toLowerCase()] ?? String(job.source ?? '—');
 
   return (
     <tr
@@ -44,6 +61,9 @@ export function TableRow({ job }: { job: JobRow }) {
         <span style={STATUS_STYLES[String(job.status ?? 'new')] ?? {}}>
           {String(job.status ?? 'new')}
         </span>
+      </td>
+      <td style={{ padding: '11px 14px', color: '#888', fontSize: '11px' }}>
+        {sourceLabel}
       </td>
       <td style={{ padding: '11px 14px', color: '#ccc', fontWeight: '500' }}>
         {String(job.company ?? '—')}
@@ -69,6 +89,23 @@ export function TableRow({ job }: { job: JobRow }) {
         {job.scored_at
           ? new Date(String(job.scored_at)).toLocaleDateString('en-GB')
           : '—'}
+      </td>
+      <td style={{ padding: '11px 14px' }}>
+        <button
+          onClick={handleDelete}
+          style={{
+            background: 'none',
+            border: '1px solid #3a3a3a',
+            borderRadius: '5px',
+            color: '#6b7280',
+            cursor: 'pointer',
+            fontSize: '11px',
+            padding: '2px 8px',
+            lineHeight: '1.5',
+          }}
+        >
+          ✕
+        </button>
       </td>
     </tr>
   );

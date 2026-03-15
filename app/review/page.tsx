@@ -219,8 +219,8 @@ export default async function ReviewPage({
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' as const }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '2px' }}>
           {TIER_FILTERS.map(({ label, value, isReject }) => (
             <Link
               key={value}
@@ -231,8 +231,7 @@ export default async function ReviewPage({
             </Link>
           ))}
         </div>
-        <div style={{ width: '1px', backgroundColor: '#2a2a2a', margin: '0 4px' }} />
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
+        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '2px' }}>
           {STATUS_FILTERS.map(({ label, value }) => (
             <Link
               key={value}
@@ -288,20 +287,22 @@ export default async function ReviewPage({
         backgroundColor: '#1a1a1a',
         borderRadius: '10px',
         border: '1px solid #2a2a2a',
-        overflow: 'hidden',
+        overflowX: 'auto',
       }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+        <table style={{ width: '100%', minWidth: '800px', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
             <tr style={{ backgroundColor: '#141414', borderBottom: '1px solid #2a2a2a' }}>
               <SortableHeader label="Tier" value="tier" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Score" value="score" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Status</th>
+              <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Source</th>
               <SortableHeader label="Company" value="company" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Title</th>
               <SortableHeader label="Location" value="location" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Remote</th>
               <SortableHeader label="Posted" value="posted_at" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Added" value="scored_at" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
+              <th style={{ padding: '10px 14px', width: '40px' }} />
             </tr>
           </thead>
           <tbody>
@@ -310,7 +311,7 @@ export default async function ReviewPage({
             ))}
             {jobs.length === 0 && (
               <tr>
-                <td colSpan={9} style={{ padding: '48px 14px', color: '#6b7280', textAlign: 'center', fontSize: '13px' }}>
+                <td colSpan={11} style={{ padding: '48px 14px', color: '#6b7280', textAlign: 'center', fontSize: '13px' }}>
                   No jobs found.
                 </td>
               </tr>

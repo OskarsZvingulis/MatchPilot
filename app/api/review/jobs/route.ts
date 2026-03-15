@@ -102,10 +102,8 @@ export async function GET(req: NextRequest) {
         j.url,
         j.posted_at,
         j.ingested_at,
+        j.source,
         s.created_at AS scored_at,
-        EXISTS (
-          SELECT 1 FROM job_assets ja WHERE ja.job_id = s.job_id
-        ) AS has_assets,
         COALESCE(r.status, 'new') AS status
       FROM jobs_scored s
       JOIN jobs_raw j ON j.id = s.job_id

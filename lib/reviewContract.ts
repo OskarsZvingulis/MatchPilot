@@ -12,6 +12,7 @@ export type JobRow = {
   remote?: string | null;
   posted_at?: string | null;
   scored_at?: string | null;
+  source?: string | null;
   status?: ReviewStatus | null;
 };
 
@@ -44,16 +45,6 @@ export type ScoredJob = {
   salary_max_gbp?: number | null;
 };
 
-export type AssetsJob = {
-  job_id: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  intro_paragraph?: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cover_letter?: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cv_emphasis?: any;
-};
-
 export type ReviewState = {
   job_id: string;
   status: ReviewStatus;
@@ -83,7 +74,6 @@ export function parseJobsResponse(json: unknown): { jobs: JobRow[] } {
 export function parseJobDetailResponse(json: unknown): {
   raw: RawJob;
   scored: ScoredJob | null;
-  assets: AssetsJob | null;
   review: ReviewState | null;
 } {
   if (!json || typeof json !== 'object') throw new Error('Invalid job detail response shape');
@@ -100,10 +90,8 @@ export function parseJobDetailResponse(json: unknown): {
     scored = s as unknown as ScoredJob;
   }
 
-  const assets =
-    obj.assets && typeof obj.assets === 'object' ? (obj.assets as AssetsJob) : null;
   const review =
     obj.review && typeof obj.review === 'object' ? (obj.review as ReviewState) : null;
 
-  return { raw: raw as unknown as RawJob, scored, assets, review };
+  return { raw: raw as unknown as RawJob, scored, review };
 }
