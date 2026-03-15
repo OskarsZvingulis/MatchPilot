@@ -73,7 +73,12 @@ const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ON
 
 function buildScoreUserMessage(description: string): string {
   return `CANDIDATE PROFILE:
-Candidate: Entry-level SaaS engineer. Strong in API integrations and cross-system debugging. Production experience with SaaS onboarding platform and AI tool. 15 years UK technical background. Open to remote UK/US/global. Contract acceptable.
+- Based in Latvia. Has UK settled status. Fully eligible to work in the UK.
+- Willing to relocate to the UK for the right role.
+- Remote work is preferred. UK hybrid and UK onsite roles are acceptable.
+- Core stack: TypeScript, JavaScript, React, Next.js, Node.js, REST APIs, Supabase, Postgres, SQL.
+- Strengths: API integrations, debugging, business-to-technical translation, workflow-heavy systems.
+- US roles must be treated much more strictly — only viable if explicitly international-friendly or sponsorship-compatible.
 
 TARGET ROLES (in priority order):
 - product_engineer
@@ -84,9 +89,13 @@ TARGET ROLES (in priority order):
 - reject
 
 SCORING RULES:
-- Prioritize: API/integration mentions, SaaS platform context, remote-first, cross-functional communication
-- Penalize: onsite-only, US-citizens-only, 5+ years mandatory, graduate programs
-- Fintech weighting is NOT special unless role is integration/API heavy
+- Do NOT treat UK location or UK right-to-work requirements as a negative signal — candidate is fully UK-eligible.
+- Do NOT reject a UK role because candidate is currently in Latvia — relocation is realistic and intended.
+- Prefer remote roles but do not penalize UK hybrid or UK onsite roles just for being hybrid/onsite.
+- Handle US roles much more strictly than UK roles.
+- Prioritize: TypeScript/React/Node.js stack match, API/integration mentions, SaaS context, debugging relevance.
+- Penalize: US-only roles without sponsorship, 5+ years explicitly mandatory, graduate-only programs, major tech mismatch.
+- Do not invent years of experience. Do not assign inflated seniority. Do not invent leadership claims.
 
 Experience band classification rules:
 - Use "5+" ONLY if the posting explicitly contains: "5+ years", "Senior", "Staff", "Lead", or "Principal"
@@ -97,13 +106,13 @@ Experience band classification rules:
 
 Scoring scale guidance:
 - 90–100: Exceptional fit, highly aligned with candidate strengths
-- 75–89: Strong fit, good alignment with APIs/SaaS/remote
+- 75–89: Strong fit, good stack/role alignment
 - 60–74: Moderate fit, some alignment but not ideal
 - 40–59: Weak fit
 - 0–39: Poor fit or clear mismatch
 
-Most reasonable SaaS/API roles with remote options should score between 70–85.
-Do not default to very low numbers unless strong mismatch exists.
+Most reasonable TypeScript/React/Node/API roles should score between 70–85.
+Do not default to very low numbers unless a strong mismatch exists.
 
 REQUIRED JSON STRUCTURE:
 {
@@ -139,12 +148,11 @@ const ASSETS_SYSTEM = `You are a strategic job application writer. Generate tail
 
 function buildAssetsUserMessage(title: string, company: string, description: string): string {
   return `Candidate profile:
-- 15 years UK technical experience (diagnostics/systems)
-- Production SaaS: built API-driven onboarding platform (TypeScript, Supabase, REST APIs)
-- Built AIDQA: AI-assisted visual regression SaaS tool
-- Strengths: API integrations, end-to-end debugging, business-to-technical translation
-- Fluent English, UK work background, based in Latvia, targeting remote roles
-- Open to contract
+- Based in Latvia, UK settled status, fully eligible to work in the UK, willing to relocate
+- Core stack: TypeScript, JavaScript, React, Next.js, Node.js, REST APIs, Supabase, Postgres, SQL
+- Production SaaS: built API-driven onboarding platform and AIDQA (AI-assisted visual regression tool)
+- Strengths: API integrations, end-to-end debugging, business-to-technical translation, workflow-heavy systems
+- Fluent English, targeting remote roles, UK hybrid/onsite acceptable, open to contract
 
 Job title: ${title}
 Company: ${company}

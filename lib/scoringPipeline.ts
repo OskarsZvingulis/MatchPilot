@@ -57,7 +57,7 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
   // ── Score with LLM ─────────────────────────────────────────────────────────
   const scoring = await scoreJob(description ?? '', { remote });
 
-  const visa_restriction: boolean = scoring.visa_restriction !== 'none';
+  const visa_restriction: boolean = scoring.visa_restriction === 'us_only' || scoring.visa_restriction === 'eu_only';
   const redFlags = Array.isArray(scoring.red_flags) ? scoring.red_flags : [];
   const reasons  = Array.isArray(scoring.reasons)   ? scoring.reasons   : [];
 
