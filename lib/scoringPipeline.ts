@@ -1,5 +1,5 @@
 import { getDb } from '@/lib/db';
-import { scoreJob, generateAssets } from '@/lib/openai';
+import { scoreJob } from '@/lib/openai';
 import { sendTelegramMessage } from '@/lib/telegram';
 
 type Tier = 'A' | 'B' | 'C' | 'reject';
@@ -121,30 +121,6 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
     ON CONFLICT (job_id) DO NOTHING
   `;
 
-  // ── Tier A/B: generate assets ────────────────────────────────────
-  if (tier === 'A' || tier === 'B') {
-    const existingAssets = await sql`
-      SELECT job_id FROM job_assets WHERE job_id = ${job_id} LIMIT 1
-    `;
-
-    if (existingAssets.length === 0) {
-      try {
-        const assets = await generateAssets(title ?? '', company ?? '', description ?? '');
-        await sql`
-          INSERT INTO job_assets (job_id, intro_paragraph, cover_letter, cv_emphasis)
-          VALUES (
-            ${job_id},
-            ${assets.intro_paragraph},
-            ${assets.cover_letter},
-            ${JSON.stringify(assets.cv_emphasis)}
-          )
-          ON CONFLICT (job_id) DO NOTHING
-        `;
-      } catch (err) {
-        console.error('Asset generation failed:', err);
-      }
-    }
-  }
 
   // ── Tier A: notify ────────────────────────────────────
   if (tier === 'A') {
