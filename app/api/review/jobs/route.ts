@@ -6,7 +6,7 @@ const VALID_STATUSES = new Set(['new', 'shortlist', 'applied', 'skip']);
 const DEFAULT_LIMIT  = 50;
 const MAX_LIMIT      = 200;
 
-const VALID_SORT_BY  = new Set(['posted_at', 'location', 'company', 'score', 'tier', 'scored_at']);
+const VALID_SORT_BY  = new Set(['posted_at', 'location', 'company', 'score', 'tier', 'scored_at', 'source', 'status', 'remote', 'title']);
 const VALID_SORT_DIR = new Set(['asc', 'desc']);
 
 // Whitelist mapping for security
@@ -17,6 +17,10 @@ const SORT_COLUMN_MAP: Record<string, string> = {
   score:      's.score',
   tier:       's.tier',
   scored_at:  's.created_at',
+  source:     'j.source',
+  status:     'COALESCE(r.status, \'new\')',
+  remote:     'j.remote',
+  title:      'j.title',
 };
 
 export async function GET(req: NextRequest) {
@@ -80,6 +84,14 @@ export async function GET(req: NextRequest) {
     'tier:asc':       sql`ORDER BY ${TIER_SORT_ASC}, s.score DESC, j.posted_at DESC NULLS LAST`,
     'scored_at:desc': sql`ORDER BY s.created_at DESC NULLS LAST, s.score DESC`,
     'scored_at:asc':  sql`ORDER BY s.created_at ASC NULLS LAST, s.score DESC`,
+    'source:desc':    sql`ORDER BY j.source DESC, s.score DESC`,
+    'source:asc':     sql`ORDER BY j.source ASC, s.score DESC`,
+    'status:desc':    sql`ORDER BY COALESCE(r.status, 'new') DESC, s.score DESC`,
+    'status:asc':     sql`ORDER BY COALESCE(r.status, 'new') ASC, s.score DESC`,
+    'remote:desc':    sql`ORDER BY j.remote DESC, s.score DESC`,
+    'remote:asc':     sql`ORDER BY j.remote ASC, s.score DESC`,
+    'title:desc':     sql`ORDER BY j.title DESC, s.score DESC`,
+    'title:asc':      sql`ORDER BY j.title ASC, s.score DESC`,
   };
 
   const sortKey = `${validSortBy}:${validSortDir}`;

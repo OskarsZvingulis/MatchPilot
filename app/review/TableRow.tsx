@@ -65,10 +65,10 @@ export function TableRow({ job }: { job: JobRow }) {
       <td style={{ padding: '11px 14px', color: '#888', fontSize: '11px' }}>
         {sourceLabel}
       </td>
-      <td style={{ padding: '11px 14px', color: '#ccc', fontWeight: '500' }}>
+      <td style={{ padding: '11px 14px', color: '#ccc', fontWeight: '500', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {String(job.company ?? '—')}
       </td>
-      <td style={{ padding: '11px 14px' }}>
+      <td style={{ padding: '11px 14px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <Link
           href={`/review/${job.job_id}`}
           style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '500' }}
@@ -78,7 +78,7 @@ export function TableRow({ job }: { job: JobRow }) {
           {String(job.title ?? '—')}
         </Link>
       </td>
-      <td style={{ padding: '11px 14px', color: '#888' }}>{String(job.location ?? '—')}</td>
+      <td style={{ padding: '11px 14px', color: '#888', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(job.location ?? '—')}</td>
       <td style={{ padding: '11px 14px', color: '#888' }}>{String(job.remote ?? '—')}</td>
       <td style={{ padding: '11px 14px', color: '#555' }}>
         {job.posted_at

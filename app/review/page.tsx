@@ -294,12 +294,12 @@ export default async function ReviewPage({
             <tr style={{ backgroundColor: '#141414', borderBottom: '1px solid #2a2a2a' }}>
               <SortableHeader label="Tier" value="tier" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Score" value="score" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
-              <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Status</th>
-              <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Source</th>
+              <SortableHeader label="Status" value="status" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
+              <SortableHeader label="Source" value="source" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Company" value="company" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
-              <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Title</th>
+              <SortableHeader label="Title" value="title" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Location" value="location" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
-              <th style={{ padding: '10px 14px', whiteSpace: 'nowrap', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Remote</th>
+              <SortableHeader label="Remote" value="remote" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Posted" value="posted_at" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Added" value="scored_at" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <th style={{ padding: '10px 14px', width: '40px' }} />
