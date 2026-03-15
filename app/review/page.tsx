@@ -289,7 +289,7 @@ export default async function ReviewPage({
         border: '1px solid #2a2a2a',
         overflowX: 'auto',
       }}>
-        <table style={{ width: '100%', minWidth: '800px', borderCollapse: 'collapse', fontSize: '13px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
             <tr style={{ backgroundColor: '#141414', borderBottom: '1px solid #2a2a2a' }}>
               <SortableHeader label="Tier" value="tier" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
