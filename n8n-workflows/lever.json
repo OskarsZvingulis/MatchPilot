@@ -1,0 +1,126 @@
+{
+  "name": "Lever Job Ingestion",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] } },
+      "id": "schedule-lever",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lever public job posting API — no auth required.\n// API: GET https://api.lever.co/v0/postings/{slug}?mode=json\n// Add company slugs here. Find slugs at: https://jobs.lever.co/{slug}\nconst companies = [\n  'contentful',\n  'netlify',\n  'elastic',\n  'shopify',\n  'auth0',\n  'twilio',\n  'heap',\n  'bitrise',\n  'miro',\n  'hotjar',\n  'personio',\n  'pleo',\n  'deliveroo',\n  'babylon',\n  'transfer-wise',\n  'bereal',\n];\nreturn companies.map(slug => ({ json: { slug } }));"
+      },
+      "id": "companies-lever",
+      "name": "Companies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-176, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.lever.co/v0/postings/{{ $json.slug }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "mode", "value": "json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-lever",
+      "name": "Fetch Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [48, 0],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lever response is a JSON array at root or wrapped in {data:[]}\n// NOTE: Lever's API does not include a company field in posting objects.\n// Use the slug from the Companies node as the company name.\nfunction stripHtml(html) {\n  return (html || '').replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&#39;/g, \"'\").replace(/&quot;/g, '\"').replace(/\\s+/g, ' ').trim();\n}\nconst companySlug = $('Companies').item.json.slug || '';\nconst raw = $json;\nconst jobs = Array.isArray(raw) ? raw : (Array.isArray(raw.data) ? raw.data : []);\nreturn jobs.map(j => {\n  const workplaceType = (j.workplaceType || '').toLowerCase();\n  const loc = (j.categories && j.categories.location) || '';\n  const isRemote = workplaceType === 'remote' || loc.toLowerCase().includes('remote');\n  // Build description from lists\n  const lists = (j.lists || []).map(l => l.content || '').join(' ');\n  const descText = stripHtml((j.descriptionPlain || j.description || '') + ' ' + lists).slice(0, 8000);\n  return {\n    json: {\n      source: 'lever',\n      external_id: String(j.id ?? ''),\n      company: companySlug,\n      title: (j.text || j.title || '').trim(),\n      location: loc,\n      remote: isRemote ? 'remote' : 'unknown',\n      url: j.hostedUrl || j.applyUrl || '',\n      description: descText,\n      posted_at: j.createdAt ? new Date(j.createdAt).toISOString() : null,\n    }\n  };\n});"
+      },
+      "id": "normalize-lever",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [272, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "function simpleHash(str) {\n  let hash = 0;\n  for (let i = 0; i < str.length; i++) {\n    hash = ((hash << 5) - hash) + str.charCodeAt(i);\n    hash |= 0;\n  }\n  return Math.abs(hash).toString(16).padStart(8, '0');\n}\nreturn items.map(({ json }) => {\n  const base = [json.source, json.external_id, json.company, json.title, json.url].join('|');\n  return { json: { ...json, content_hash: simpleHash(base) } };\n});"
+      },
+      "id": "hash-lever",
+      "name": "Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [496, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://matchpilot-production-a08d.up.railway.app/api/ingest",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "source",       "value": "={{ $json.source }}" },
+            { "name": "external_id",  "value": "={{ $json.external_id }}" },
+            { "name": "company",      "value": "={{ $json.company }}" },
+            { "name": "title",        "value": "={{ $json.title }}" },
+            { "name": "location",     "value": "={{ $json.location }}" },
+            { "name": "remote",       "value": "={{ $json.remote }}" },
+            { "name": "url",          "value": "={{ $json.url }}" },
+            { "name": "description",  "value": "={{ $json.description }}" },
+            { "name": "posted_at",    "value": "={{ $json.posted_at }}" },
+            { "name": "content_hash", "value": "={{ $json.content_hash }}" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "ingest-lever",
+      "name": "Ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 0],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": { "jsCode": "return Array.from({length: 100}, (_, i) => ({ json: { i } }));" },
+      "id": "loop-lever",
+      "name": "Loop 100",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [944, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://matchpilot-production-a08d.up.railway.app/api/worker/score",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-worker-secret", "value": "3eb2bf26e739c83044d5b6c7ea851c4e4c7e6f58afd401f267fa98f78445e6bf" }] },
+        "options": { "timeout": 60000 }
+      },
+      "id": "worker-lever",
+      "name": "Trigger Worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1168, 0],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Companies", "type": "main", "index": 0 }]] },
+    "Companies":        { "main": [[{ "node": "Fetch Jobs", "type": "main", "index": 0 }]] },
+    "Fetch Jobs":       { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Normalize":        { "main": [[{ "node": "Hash", "type": "main", "index": 0 }]] },
+    "Hash":             { "main": [[{ "node": "Ingest", "type": "main", "index": 0 }]] },
+    "Ingest":           { "main": [[{ "node": "Loop 100", "type": "main", "index": 0 }]] },
+    "Loop 100":         { "main": [[{ "node": "Trigger Worker", "type": "main", "index": 0 }]] }
+  }
+}

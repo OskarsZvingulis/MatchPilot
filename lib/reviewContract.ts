@@ -1,54 +1,67 @@
 // ─── Authoritative types ──────────────────────────────────────────────────────
 
-export type ReviewStatus = 'new' | 'shortlist' | 'applied' | 'skip';
+export type ReviewStatus    = 'new' | 'shortlist' | 'applied' | 'skip';
+export type Recommendation  = 'strong_match' | 'possible_match' | 'weak_match' | 'ineligible';
+export type EvaluationPath  = 'reject_fast' | 'evaluate_but_ineligible' | 'evaluate';
 
 export type JobRow = {
-  job_id: string;
-  tier: 'A' | 'B' | 'C' | 'reject';
-  score: number;
-  company?: string | null;
-  title?: string | null;
-  location?: string | null;
-  remote?: string | null;
-  posted_at?: string | null;
-  scored_at?: string | null;
-  source?: string | null;
-  status?: ReviewStatus | null;
+  job_id:          string;
+  tier:            'A' | 'B' | 'C' | 'reject';
+  recommendation?: Recommendation | null;
+  score:           number;
+  company?:        string | null;
+  title?:          string | null;
+  location?:       string | null;
+  remote?:         string | null;
+  posted_at?:      string | null;
+  scored_at?:      string | null;
+  source?:         string | null;
+  status?:         ReviewStatus | null;
 };
 
 export type RawJob = {
-  id: string;
-  company?: string | null;
-  title?: string | null;
-  location?: string | null;
-  remote?: string | null;
-  url?: string | null;
+  id:           string;
+  company?:     string | null;
+  title?:       string | null;
+  location?:    string | null;
+  remote?:      string | null;
+  url?:         string | null;
   description?: string | null;
-  posted_at?: string | null;
+  posted_at?:   string | null;
   ingested_at?: string | null;
-  source?: string | null;
+  source?:      string | null;
   external_id?: string | null;
 };
 
 export type ScoredJob = {
-  job_id: string;
-  tier: 'A' | 'B' | 'C' | 'reject';
-  score: number;
-  role_category?: string | null;
-  experience_band?: string | null;
+  job_id:              string;
+  tier:                'A' | 'B' | 'C' | 'reject';
+  recommendation?:     Recommendation | null;
+  evaluation_path?:    EvaluationPath | null;
+  score:               number;
+  role_category?:      string | null;
+  experience_band?:    string | null;
   remote_feasibility?: string | null;
-  red_flags?: string[] | null;
-  onsite_required?: boolean | null;
-  visa_restriction?: boolean | null;
-  tech_mismatch?: boolean | null;
-  salary_min_gbp?: number | null;
-  salary_max_gbp?: number | null;
+  reasons?:            string[] | null;
+  red_flags?:          string[] | null;
+  blockers?:           string[] | null;
+  onsite_required?:    boolean | null;
+  visa_restriction?:   boolean | null;
+  tech_mismatch?:      boolean | null;
+  tech_mismatch_level?: string | null;
+  seniority_level?:    string | null;
+  infra_depth?:        string | null;
+  salary_min_gbp?:     number | null;
+  salary_max_gbp?:     number | null;
+  salary_currency?:    string | null;
+  created_at?:         string | null;
+  scored_at?:          string | null;
 };
 
 export type ReviewState = {
-  job_id: string;
-  status: ReviewStatus;
-  notes?: string | null;
+  job_id:     string;
+  status:     ReviewStatus;
+  notes?:     string | null;
   updated_at: string;
 };
 
@@ -72,7 +85,7 @@ export function parseJobsResponse(json: unknown): { jobs: JobRow[] } {
 }
 
 export function parseJobDetailResponse(json: unknown): {
-  raw: RawJob;
+  raw:    RawJob;
   scored: ScoredJob | null;
   review: ReviewState | null;
 } {

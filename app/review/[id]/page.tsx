@@ -25,12 +25,25 @@ function getBaseUrl(hdrs: any): string {
   return `${proto}://${host}`;
 }
 
-const TIER_COLOR: Record<string, string> = {
-  A: '#86efac', B: '#93c5fd', C: '#fcd34d', reject: '#fca5a5',
+const REC_LABEL: Record<string, string> = {
+  strong_match:   'Strong Match',
+  possible_match: 'Possible Match',
+  weak_match:     'Weak Match',
+  ineligible:     'Ineligible',
 };
 
-const TIER_BG: Record<string, string> = {
-  A: '#14532d', B: '#1e3a5f', C: '#451a03', reject: '#450a0a',
+const REC_COLOR: Record<string, string> = {
+  strong_match:   '#86efac',
+  possible_match: '#93c5fd',
+  weak_match:     '#fcd34d',
+  ineligible:     '#fca5a5',
+};
+
+const REC_BG: Record<string, string> = {
+  strong_match:   '#14532d',
+  possible_match: '#1e3a5f',
+  weak_match:     '#451a03',
+  ineligible:     '#450a0a',
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -40,6 +53,14 @@ const STATUS_COLOR: Record<string, string> = {
 const STATUS_BG: Record<string, string> = {
   new: '#2a2a2a', shortlist: '#14532d', applied: '#1e3a5f', skip: '#450a0a',
 };
+
+// Derive recommendation from tier for backward-compat
+function recFromTier(tier: string): string {
+  if (tier === 'A') return 'strong_match';
+  if (tier === 'B') return 'possible_match';
+  if (tier === 'C') return 'weak_match';
+  return 'ineligible';
+}
 
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
@@ -84,6 +105,23 @@ function formatSalary(min: number | null, max: number | null): string {
   if (min && max)  return `£${min.toLocaleString()} – £${max.toLocaleString()}`;
   if (min)         return `from £${min.toLocaleString()}`;
   return `up to £${max!.toLocaleString()}`;
+}
+
+function EvalPathLabel({ path }: { path: string | null | undefined }) {
+  if (!path || path === 'evaluate') return null;
+  const label = path === 'reject_fast' ? 'Fast rejected' : 'Evaluated — ineligible';
+  return (
+    <span style={{
+      fontSize: '11px',
+      color: '#6b7280',
+      backgroundColor: '#1f1f1f',
+      border: '1px solid #2a2a2a',
+      borderRadius: '4px',
+      padding: '2px 8px',
+    }}>
+      {label}
+    </span>
+  );
 }
 
 export default async function JobDetailPage({
@@ -136,12 +174,19 @@ export default async function JobDetailPage({
       </main>
     );
   }
+
   const raw          = data.raw;
   const scored       = data.scored;
   const reviewStatus = data.review?.status ?? 'new';
 
-  const tierColor = scored ? (TIER_COLOR[String(scored.tier)] ?? '#cbd5e1') : '#cbd5e1';
-  const tierBg    = scored ? (TIER_BG[String(scored.tier)]    ?? '#2a2a2a') : '#2a2a2a';
+  const rec      = String(scored?.recommendation ?? (scored ? recFromTier(String(scored.tier)) : 'ineligible'));
+  const recColor = REC_COLOR[rec] ?? '#cbd5e1';
+  const recBg    = REC_BG[rec]    ?? '#2a2a2a';
+  const recLabel = REC_LABEL[rec] ?? rec;
+
+  const reasons  = Array.isArray(scored?.reasons)  ? (scored!.reasons  as string[]) : [];
+  const redFlags = Array.isArray(scored?.red_flags) ? (scored!.red_flags as string[]) : [];
+  const blockers = Array.isArray(scored?.blockers)  ? (scored!.blockers  as string[]) : [];
 
   return (
     <main style={{ maxWidth: '820px' }}>
@@ -184,14 +229,22 @@ export default async function JobDetailPage({
                 <span style={{
                   fontSize: '11px',
                   fontWeight: '700',
-                  color: tierColor,
-                  backgroundColor: tierBg,
+                  color: recColor,
+                  backgroundColor: recBg,
                   borderRadius: '5px',
                   padding: '3px 10px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
                 }}>
-                  Tier {String(scored.tier)} · {String(scored.score)}
+                  {recLabel}
                 </span>
               )}
+              {scored && (
+                <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '600' }}>
+                  {String(scored.score)}
+                </span>
+              )}
+              {scored && <EvalPathLabel path={scored.evaluation_path} />}
             </div>
           </div>
           {raw?.url && (
@@ -220,39 +273,71 @@ export default async function JobDetailPage({
         </div>
       </Card>
 
-      {/* ── Score ──────────────────────────────────────────────────────── */}
-      <Card style={{ marginBottom: '16px' }}>
-        <SectionHeading>Score</SectionHeading>
-        {scored ? (
-          <div>
-            <Field label="Tier"
-              value={
-                <span style={{ color: tierColor, fontWeight: '700', backgroundColor: tierBg, borderRadius: '4px', padding: '1px 7px' }}>
-                  {String(scored.tier)}
-                </span>
-              }
-            />
-            <Field label="Score"            value={String(scored.score)} />
-            <Field label="Role category"    value={String(scored.role_category)} />
-            <Field label="Experience"       value={String(scored.experience_band)} />
-            <Field label="Remote"           value={String(scored.remote_feasibility)} />
-            <Field label="Onsite required"  value={scored.onsite_required  ? 'Yes' : 'No'} />
-            <Field label="Visa restriction" value={scored.visa_restriction  ? 'Yes' : 'No'} />
-            <Field label="Tech mismatch"    value={scored.tech_mismatch     ? 'Yes' : 'No'} />
-            <Field label="Salary range"
-              value={formatSalary(
-                scored.salary_min_gbp as number | null,
-                scored.salary_max_gbp as number | null,
-              )}
-            />
-            {Array.isArray(scored.red_flags) ? scored.red_flags.map((f: string, i: number) => (
-              <Field key={i} label={i === 0 ? 'Red flags' : ''} value={<span style={{ color: '#fca5a5' }}>{f}</span>} />
-            )) : null}
-          </div>
-        ) : (
-          <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>Not yet scored.</p>
-        )}
-      </Card>
+      {/* ── Blockers ──────────────────────────────────────────────────────── */}
+      {blockers.length > 0 && (
+        <Card style={{ marginBottom: '16px', border: '1px solid rgba(220,38,38,0.3)', backgroundColor: 'rgba(69,10,10,0.4)' }}>
+          <SectionHeading>Hard blockers</SectionHeading>
+          <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
+            {blockers.map((b: string, i: number) => (
+              <li key={i} style={{ fontSize: '13px', color: '#fca5a5', padding: '4px 0', lineHeight: '1.5' }}>
+                {b}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* ── Reasons FOR ───────────────────────────────────────────────────── */}
+      {reasons.length > 0 && (
+        <Card style={{ marginBottom: '16px' }}>
+          <SectionHeading>Why it fits</SectionHeading>
+          <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
+            {reasons.map((r: string, i: number) => (
+              <li key={i} style={{ fontSize: '13px', color: '#86efac', padding: '4px 0', lineHeight: '1.5' }}>
+                {r}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* ── Red Flags ─────────────────────────────────────────────────────── */}
+      {redFlags.length > 0 && (
+        <Card style={{ marginBottom: '16px' }}>
+          <SectionHeading>Red flags</SectionHeading>
+          <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
+            {redFlags.map((f: string, i: number) => (
+              <li key={i} style={{ fontSize: '13px', color: '#fcd34d', padding: '4px 0', lineHeight: '1.5' }}>
+                {f}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* ── Evaluation metadata ───────────────────────────────────────────── */}
+      {scored && (
+        <Card style={{ marginBottom: '16px' }}>
+          <SectionHeading>Evaluation details</SectionHeading>
+          <Field label="Role category"    value={String(scored.role_category ?? '—')} />
+          <Field label="Seniority"        value={String(scored.seniority_level ?? '—')} />
+          <Field label="Infra depth"      value={String(scored.infra_depth ?? '—')} />
+          <Field label="Tech mismatch"    value={String(scored.tech_mismatch_level ?? '—')} />
+          <Field label="Experience band"  value={String(scored.experience_band ?? '—')} />
+          <Field label="Remote"           value={String(scored.remote_feasibility ?? '—')} />
+          <Field label="Onsite required"  value={scored.onsite_required  ? 'Yes' : 'No'} />
+          <Field label="Visa restriction" value={scored.visa_restriction  ? 'Yes' : 'No'} />
+          <Field label="Salary range"
+            value={formatSalary(
+              scored.salary_min_gbp as number | null,
+              scored.salary_max_gbp as number | null,
+            )}
+          />
+          <Field label="Source"           value={String(raw?.source ?? '—')} />
+          <Field label="Posted"           value={raw?.posted_at ? new Date(String(raw.posted_at)).toLocaleDateString('en-GB') : '—'} />
+          <Field label="Scored"           value={(scored.created_at || scored.scored_at) ? new Date(String(scored.created_at ?? scored.scored_at)).toLocaleDateString('en-GB') : '—'} />
+        </Card>
+      )}
 
       {/* ── Action ─────────────────────────────────────────────────────── */}
       <Card style={{ marginBottom: '16px' }}>

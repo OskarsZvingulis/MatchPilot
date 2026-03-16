@@ -28,12 +28,13 @@ const VALID_TIERS    = new Set(['A', 'B', 'C', 'reject']);
 const VALID_STATUSES = new Set(['new', 'shortlist', 'applied', 'skip', 'all']);
 const LIMIT          = 50;
 
-const TIER_FILTERS = [
-  { label: 'All',    value: 'A,B,C,reject', isReject: false },
-  { label: 'A',      value: 'A',            isReject: false },
-  { label: 'B',      value: 'B',            isReject: false },
-  { label: 'C',      value: 'C',            isReject: false },
-  { label: 'Reject', value: 'reject',       isReject: true  },
+// Recommendation filters — map to underlying tier values for API
+const RECOMMENDATION_FILTERS = [
+  { label: 'Strong',     value: 'A',            isDanger: false },
+  { label: 'Possible',   value: 'B',            isDanger: false },
+  { label: 'Weak',       value: 'C',            isDanger: false },
+  { label: 'Ineligible', value: 'reject',       isDanger: true  },
+  { label: 'All',        value: 'A,B,C,reject', isDanger: false },
 ];
 
 const STATUS_FILTERS = [
@@ -85,7 +86,6 @@ function SortableHeader({
   newUrl.searchParams.set('sort_dir', newSortDir);
   newUrl.searchParams.set('offset', '0');
 
-
   return (
     <th style={{
       padding: '10px 14px',
@@ -118,7 +118,7 @@ const PILL = (active: boolean): React.CSSProperties => ({
   whiteSpace: 'nowrap' as const,
 });
 
-const REJECT_PILL = (active: boolean): React.CSSProperties => ({
+const DANGER_PILL = (active: boolean): React.CSSProperties => ({
   display: 'inline-block',
   padding: '4px 12px',
   borderRadius: '9999px',
@@ -151,7 +151,8 @@ export default async function ReviewPage({
     sort_dir: sortDirParam,
   } = await searchParams;
 
-  const activeTiers  = tiersParam ?? 'A,B,C,reject';
+  // Default: strong + possible only (tiers A,B)
+  const activeTiers  = tiersParam ?? 'A,B';
   const activeStatus = statusParam && VALID_STATUSES.has(statusParam) ? statusParam : 'new';
   const offset       = Math.max(0, parseInt(offsetParam ?? '0', 10) || 0);
   const sortBy       = sortByParam ?? 'score';
@@ -161,7 +162,7 @@ export default async function ReviewPage({
     .split(',')
     .map((t) => t.trim())
     .filter((t) => VALID_TIERS.has(t));
-  const validTiers = tiers.length > 0 ? tiers : ['A', 'B', 'C', 'reject'];
+  const validTiers = tiers.length > 0 ? tiers : ['A', 'B'];
 
   const hdrs    = await headers();
   const baseUrl = getBaseUrl(hdrs);
@@ -221,11 +222,11 @@ export default async function ReviewPage({
       {/* Filters */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
         <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '2px' }}>
-          {TIER_FILTERS.map(({ label, value, isReject }) => (
+          {RECOMMENDATION_FILTERS.map(({ label, value, isDanger }) => (
             <Link
               key={value}
               href={queueUrl({ tiers: value, status: activeStatus, offset: 0, sortBy, sortDir })}
-              style={isReject ? REJECT_PILL(activeTiers === value) : PILL(activeTiers === value)}
+              style={isDanger ? DANGER_PILL(activeTiers === value) : PILL(activeTiers === value)}
             >
               {label}
             </Link>
@@ -292,7 +293,7 @@ export default async function ReviewPage({
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
             <tr style={{ backgroundColor: '#141414', borderBottom: '1px solid #2a2a2a' }}>
-              <SortableHeader label="Tier" value="tier" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
+              <SortableHeader label="Match" value="tier" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Score" value="score" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Status" value="status" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />
               <SortableHeader label="Source" value="source" sortBy={sortBy} sortDir={sortDir} url={queueUrl({ tiers: activeTiers, status: activeStatus, offset: 0, sortBy, sortDir })} />

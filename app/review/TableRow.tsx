@@ -5,12 +5,27 @@ import { useRouter } from 'next/navigation';
 import type { JobRow } from '@/lib/reviewContract';
 import React from 'react';
 
-const TIER_STYLES: Record<string, React.CSSProperties> = {
-  A:      { backgroundColor: '#14532d', color: '#86efac', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px' },
-  B:      { backgroundColor: '#1e3a5f', color: '#93c5fd', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px' },
-  C:      { backgroundColor: '#451a03', color: '#fcd34d', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px' },
-  reject: { backgroundColor: '#450a0a', color: '#fca5a5', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px' },
+const REC_STYLES: Record<string, React.CSSProperties> = {
+  strong_match:   { backgroundColor: '#14532d', color: '#86efac', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px', whiteSpace: 'nowrap' },
+  possible_match: { backgroundColor: '#1e3a5f', color: '#93c5fd', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px', whiteSpace: 'nowrap' },
+  weak_match:     { backgroundColor: '#451a03', color: '#fcd34d', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px', whiteSpace: 'nowrap' },
+  ineligible:     { backgroundColor: '#450a0a', color: '#fca5a5', borderRadius: '5px', padding: '2px 8px', fontWeight: '700', fontSize: '11px', whiteSpace: 'nowrap' },
 };
+
+const REC_LABELS: Record<string, string> = {
+  strong_match:   'Strong',
+  possible_match: 'Possible',
+  weak_match:     'Weak',
+  ineligible:     'Ineligible',
+};
+
+// Fallback: derive recommendation label from tier when recommendation field not yet populated
+function recFromTier(tier: string): string {
+  if (tier === 'A')      return 'strong_match';
+  if (tier === 'B')      return 'possible_match';
+  if (tier === 'C')      return 'weak_match';
+  return 'ineligible';
+}
 
 const STATUS_STYLES: Record<string, React.CSSProperties> = {
   new:       { backgroundColor: '#2a2a2a', color: '#888', borderRadius: '5px', padding: '2px 8px', fontSize: '11px', fontWeight: '500' },
@@ -25,6 +40,9 @@ const SOURCE_LABELS: Record<string, string> = {
   weworkremotely:  'WWR',
   jobicy:          'Jobicy',
   adzuna:          'Adzuna',
+  greenhouse:      'Greenhouse',
+  lever:           'Lever',
+  ashby:           'Ashby',
 };
 
 export function TableRow({ job }: { job: JobRow }) {
@@ -42,6 +60,8 @@ export function TableRow({ job }: { job: JobRow }) {
   };
 
   const sourceLabel = SOURCE_LABELS[String(job.source ?? '').toLowerCase()] ?? String(job.source ?? '—');
+  const rec = String(job.recommendation ?? recFromTier(String(job.tier)));
+  const recLabel = REC_LABELS[rec] ?? rec;
 
   return (
     <tr
@@ -50,8 +70,8 @@ export function TableRow({ job }: { job: JobRow }) {
       onClick={handleClick}
     >
       <td style={{ padding: '11px 14px' }}>
-        <span style={TIER_STYLES[String(job.tier)] ?? {}}>
-          {String(job.tier)}
+        <span style={REC_STYLES[rec] ?? {}}>
+          {recLabel}
         </span>
       </td>
       <td style={{ padding: '11px 14px', fontWeight: '600', color: '#e8e8e8' }}>

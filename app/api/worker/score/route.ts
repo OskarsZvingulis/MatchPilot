@@ -91,6 +91,8 @@ async function worker(req: NextRequest) {
     // If a job was picked (jobToProcess is not null) and not skipped, run scoring outside the transaction.
     if (jobToProcess && jobId) {
       try {
+        // Small random jitter (0–2s) to spread concurrent worker calls and avoid TPM spikes.
+        await new Promise(r => setTimeout(r, Math.random() * 2000));
         await runScoringForJob(String(jobId));
 
         // Update status to 'done' outside the explicit transaction

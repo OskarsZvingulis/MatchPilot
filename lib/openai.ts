@@ -1,11 +1,14 @@
 import OpenAI from 'openai';
+import { CANDIDATE_PROFILE } from '@/lib/candidateProfile';
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY environment variable is not set');
   }
-  return new OpenAI({ apiKey });
+  // maxRetries: SDK reads Retry-After header on 429 and waits automatically.
+  // 6 retries handles bursts from the worker being triggered many times at once.
+  return new OpenAI({ apiKey, maxRetries: 6 });
 }
 
 // ─── Allowed enum values ───────────────────────────────────────────────────────
@@ -30,12 +33,20 @@ const SALARY_CURRENCIES = ['GBP', 'EUR', 'USD', 'CAD', 'AUD', 'unknown'] as cons
 const TECH_MISMATCH_LEVELS = ['none', 'some', 'major'] as const;
 const TECH_MISMATCH_LEVEL_SET = new Set<string>(TECH_MISMATCH_LEVELS);
 
+const SENIORITY_LEVELS = ['junior', 'mid', 'senior', 'lead_plus', 'unknown'] as const;
+const SENIORITY_LEVEL_SET = new Set<string>(SENIORITY_LEVELS);
+
+const INFRA_DEPTHS = ['none', 'light', 'heavy'] as const;
+const INFRA_DEPTH_SET = new Set<string>(INFRA_DEPTHS);
+
 type RoleCategory = (typeof ROLE_CATEGORIES)[number];
 type ExperienceBand = (typeof EXPERIENCE_BANDS)[number];
 type RemoteFeasibility = (typeof REMOTE_FEASIBILITIES)[number];
 type VisaRestriction = (typeof VISA_RESTRICTIONS)[number];
 type SalaryCurrency = (typeof SALARY_CURRENCIES)[number];
 type TechMismatchLevel = (typeof TECH_MISMATCH_LEVELS)[number];
+type SeniorityLevel = (typeof SENIORITY_LEVELS)[number];
+type InfraDepth = (typeof INFRA_DEPTHS)[number];
 
 // ─── Return types ─────────────────────────────────────────────────────────────
 
@@ -53,19 +64,24 @@ export interface JobScore {
   salary_currency: SalaryCurrency;
   tech_mismatch: boolean;
   tech_mismatch_level: TechMismatchLevel;
+  seniority_level: SeniorityLevel;
+  infra_depth: InfraDepth;
 }
 
 // ─── Scoring prompts ──────────────────────────────────────────────────────────
 
-const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null. Set onsite_required to true only if the posting explicitly states onsite-only, 5 days in office, or no remote option. Set visa_restriction based on explicit language about right to work, citizenship requirements, or no sponsorship. For tech_mismatch_level: "none" means the stack aligns with the candidate's core skills (TypeScript, React, APIs, SaaS); "some" means partial match with notable gaps the candidate could ramp on; "major" means the core required stack is outside the candidate's experience (e.g. Django, Azure, DBA-heavy, Java-only, embedded, mobile-native). If unsure, choose "some". Set tech_mismatch to true only when tech_mismatch_level is "major".`;
+const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null.`;
 
 function buildScoreUserMessage(description: string): string {
+  const p = CANDIDATE_PROFILE;
   return `CANDIDATE PROFILE:
-- Based in Latvia. Has UK settled status. Fully eligible to work in the UK.
+- Based in ${p.currentLocation}. Has UK settled status. Fully eligible to work in the UK.
 - Willing to relocate to the UK for the right role.
 - Remote work is preferred. UK hybrid and UK onsite roles are acceptable.
-- Core stack: TypeScript, JavaScript, React, Next.js, Node.js, REST APIs, Supabase, Postgres, SQL.
-- Strengths: API integrations, debugging, business-to-technical translation, workflow-heavy systems.
+- Target level: mid-level individual contributor (roughly 3-5 years). NOT positioned as senior, lead, staff, or principal.
+- Core stack: ${p.coreStack.join(', ')}.
+- Strengths: ${p.strengths.join(', ')}.
+- Infrastructure profile: familiar with basic cloud/AWS concepts but NOT an infrastructure engineer. No Terraform, ECS, EventBridge, SNS, IaC ownership, or platform/DevOps specialist experience.
 - US roles must be treated much more strictly — only viable if explicitly international-friendly or sponsorship-compatible.
 
 TARGET ROLES (in priority order):
@@ -76,31 +92,74 @@ TARGET ROLES (in priority order):
 - other
 - reject
 
-SCORING RULES:
-- Do NOT treat UK location or UK right-to-work requirements as a negative signal — candidate is fully UK-eligible.
-- Do NOT reject a UK role because candidate is currently in Latvia — relocation is realistic and intended.
-- Prefer remote roles but do not penalize UK hybrid or UK onsite roles just for being hybrid/onsite.
-- Handle US roles much more strictly than UK roles.
-- Prioritize: TypeScript/React/Node.js stack match, API/integration mentions, SaaS context, debugging relevance.
-- Penalize: US-only roles without sponsorship, 5+ years explicitly mandatory, graduate-only programs, major tech mismatch.
-- Do not invent years of experience. Do not assign inflated seniority. Do not invent leadership claims.
+══════════════════════════════════════════
+SCORING RULES — READ ALL BEFORE SCORING
+══════════════════════════════════════════
 
-Experience band classification rules:
-- Use "5+" ONLY if the posting explicitly contains: "5+ years", "Senior", "Staff", "Lead", or "Principal"
-- Use "0-2" ONLY if explicitly states graduate, junior, entry-level, or 0-2 years
-- Use "3-5" if explicitly states 3-5 years
-- If no explicit seniority stated, default to "3-5"
-- Do NOT infer seniority from tone, ownership, responsibility, or startup language
+STEP 1 — CLASSIFY SENIORITY LEVEL (seniority_level field):
+- "junior":    explicit graduate / junior / entry-level / 0-2 years
+- "mid":       3-5 years explicitly, or no seniority signal at all
+- "senior":    title or body contains Senior, 5+ years, or "5 years+"
+- "lead_plus": title or body contains Lead, Staff, Principal, Architect, Head of, VP, Director
+- "unknown":   cannot determine
+RULE: Classify from the job title first, then body. Do NOT infer from tone or responsibility language.
 
-Scoring scale guidance:
-- 90–100: Exceptional fit, highly aligned with candidate strengths
-- 75–89: Strong fit, good stack/role alignment
-- 60–74: Moderate fit, some alignment but not ideal
-- 40–59: Weak fit
-- 0–39: Poor fit or clear mismatch
+STEP 2 — CLASSIFY INFRASTRUCTURE DEPTH (infra_depth field):
+- "none":  no infrastructure requirements
+- "light": some AWS/cloud mentions (S3, Lambda basics) but no ownership or specialist depth required
+- "heavy": role explicitly requires ownership or specialist depth in ANY of:
+    Terraform, ECS, EventBridge, SNS, SQS, Kubernetes, Helm, CI/CD pipeline ownership,
+    cloud infrastructure design, microservices platform ownership, IaC, GitOps, CDK, Pulumi,
+    DevOps ownership, platform engineering, "you will own the infrastructure"
+RULE: If two or more heavy signals are present, always output "heavy". One strong signal alone is also "heavy".
 
-Most reasonable TypeScript/React/Node/API roles should score between 70–85.
-Do not default to very low numbers unless a strong mismatch exists.
+STEP 3 — SCORE STACK FIT (positive signals):
+Positive score contribution from: TypeScript, React, Next.js, Node.js, REST APIs, Postgres, SaaS, integrations, debugging, workflow systems.
+These are ADDITIVE but cannot push the score above ceilings set in step 4/5.
+
+STEP 4 — APPLY SENIORITY CEILING to your raw score:
+- seniority "junior" or "mid": no ceiling from seniority
+- seniority "senior": your score MUST NOT exceed 74
+- seniority "lead_plus": your score MUST NOT exceed 64
+Reason: candidate is not positioned for senior/lead roles. Stack keyword match is irrelevant if level is wrong.
+Add to red_flags: "Role is explicitly senior — exceeds candidate level" or "Role is lead/staff/principal — significantly exceeds candidate level"
+
+STEP 5 — APPLY INFRA DEPTH CEILING on top of seniority ceiling:
+- infra_depth "none" or "light": no additional ceiling
+- infra_depth "heavy": subtract 10 from the seniority-adjusted ceiling (minimum ceiling 40)
+Reason: infrastructure depth is outside candidate's profile even if the application stack matches.
+Add to red_flags: "Infrastructure ownership depth (Terraform/ECS/platform) exceeds candidate profile"
+
+EXAMPLE: Senior role + heavy infra → seniority ceiling 74, minus 10 for infra = final ceiling 64. Score cannot exceed 64.
+EXAMPLE: Lead role + heavy infra → seniority ceiling 64, minus 10 for infra = final ceiling 54.
+EXAMPLE: Mid role + heavy infra → no seniority ceiling, minus 10 from 100 = ceiling 90 (then infra cap below).
+
+STEP 6 — TECH MISMATCH:
+- "none": core stack aligns (TypeScript, React, REST APIs, SaaS)
+- "some": partial match — notable gaps the candidate could ramp on
+- "major": core required stack is entirely outside candidate experience (Django, Java, mobile-native, DBA-heavy, embedded, .NET-only)
+NOTE: AWS/Terraform/infra requirements alone do NOT make tech_mismatch "major" — that is captured by infra_depth. Use "some" if AWS is secondary to a TypeScript/Node core.
+tech_mismatch must be true only when tech_mismatch_level is "major".
+
+OTHER RULES:
+- Do NOT treat UK location or right-to-work as negative — candidate is fully UK-eligible.
+- Do NOT reject a UK role because candidate is in Latvia — relocation is intended.
+- Handle US roles much more strictly (visa/sponsorship required).
+- Do not invent experience, seniority, or leadership claims.
+- onsite_required: true only if explicitly onsite-only or no remote option stated.
+
+Experience band:
+- "5+": posting has Senior, Staff, Lead, Principal, or "5+ years"
+- "0-2": graduate/junior/entry-level/0-2 years
+- "3-5": explicit 3-5 years
+- default "3-5" if nothing stated
+
+Scoring scale (AFTER applying all ceilings above):
+- 85–100: Exceptional fit (only possible for mid/junior roles with good stack match)
+- 75–84: Strong fit
+- 65–74: Moderate fit
+- 50–64: Weak fit / possible match
+- 0–49: Poor fit
 
 REQUIRED JSON STRUCTURE:
 {
@@ -108,23 +167,18 @@ REQUIRED JSON STRUCTURE:
   "score": 0,
   "experience_band": "0-2|3-5|5+|unknown",
   "remote_feasibility": "good|maybe|no",
-  "reasons": ["reason 1", "reason 2", "reason 3"],
-  "red_flags": ["flag 1"],
+  "reasons": ["positive reason 1", "positive reason 2"],
+  "red_flags": ["mismatch reason 1", "mismatch reason 2"],
   "onsite_required": false,
   "visa_restriction": "none|uk_only|us_only|eu_only|unknown",
   "salary_min_gbp": null,
   "salary_max_gbp": null,
-  "salary_currency": "GBP|EUR|USD|unknown",
+  "salary_currency": "GBP|EUR|USD|CAD|AUD|unknown",
   "tech_mismatch_level": "none|some|major",
-  "tech_mismatch": false
+  "tech_mismatch": false,
+  "seniority_level": "junior|mid|senior|lead_plus|unknown",
+  "infra_depth": "none|light|heavy"
 }
-
-tech_mismatch_level definitions:
-- "none": stack aligns with candidate's core skills (TypeScript, React, REST APIs, SaaS tooling)
-- "some": partial match — notable gaps but candidate can ramp (e.g. Python-adjacent, AWS basics needed)
-- "major": core required stack is outside candidate's experience (Django/Flask, Azure, Java, mobile-native, DBA-heavy, embedded)
-If unsure, output "some". Never output any value other than none/some/major.
-tech_mismatch must be true if and only if tech_mismatch_level is "major".
 
 JOB DESCRIPTION:
 ${description}`;
@@ -164,11 +218,47 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
   }
   data.remote_feasibility = rf;
 
-  // ── Normalize tech_mismatch_level before validation ─────────────────────────
+  // ── Normalize tech_mismatch_level ───────────────────────────────────────────
   let tml = (data.tech_mismatch_level as string | undefined)?.toLowerCase?.().trim() ?? '';
   if (!TECH_MISMATCH_LEVEL_SET.has(tml)) tml = 'some';
   data.tech_mismatch_level = tml as TechMismatchLevel;
   data.tech_mismatch = tml === 'major';
+
+  // ── Normalize seniority_level ────────────────────────────────────────────────
+  let sl = (data.seniority_level as string | undefined)?.toLowerCase?.().trim() ?? '';
+  if (!SENIORITY_LEVEL_SET.has(sl)) sl = 'unknown';
+  data.seniority_level = sl as SeniorityLevel;
+
+  // ── Normalize infra_depth ────────────────────────────────────────────────────
+  let id_ = (data.infra_depth as string | undefined)?.toLowerCase?.().trim() ?? '';
+  if (!INFRA_DEPTH_SET.has(id_)) id_ = 'none';
+  data.infra_depth = id_ as InfraDepth;
+
+  // ── Deterministic score ceilings ────────────────────────────────────────────
+  const redFlags: string[] = Array.isArray(data.red_flags) ? data.red_flags as string[] : [];
+  let ceiling = 100;
+
+  if (sl === 'senior') {
+    ceiling = Math.min(ceiling, CANDIDATE_PROFILE.seniorityCeilings.senior);
+    if (!redFlags.some(f => f.toLowerCase().includes('senior'))) {
+      redFlags.push('Role is explicitly senior — exceeds candidate level');
+    }
+  } else if (sl === 'lead_plus') {
+    ceiling = Math.min(ceiling, CANDIDATE_PROFILE.seniorityCeilings.lead_plus);
+    if (!redFlags.some(f => f.toLowerCase().includes('lead') || f.toLowerCase().includes('staff') || f.toLowerCase().includes('principal'))) {
+      redFlags.push('Role is lead/staff/principal — significantly exceeds candidate level');
+    }
+  }
+
+  if (id_ === 'heavy') {
+    ceiling = Math.max(CANDIDATE_PROFILE.infraCeilingMin, ceiling - CANDIDATE_PROFILE.infraPenalty);
+    if (!redFlags.some(f => f.toLowerCase().includes('infra'))) {
+      redFlags.push('Infrastructure ownership depth (Terraform/ECS/platform) exceeds candidate profile');
+    }
+  }
+
+  data.red_flags = redFlags;
+  data.score = Math.min(data.score as number, ceiling);
   // ────────────────────────────────────────────────────────────────────────────
 
   // ── Region detection ───────────────────────────────────────────────────────
@@ -181,7 +271,7 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
     descriptionLower.includes('us only') ||
     descriptionLower.includes('u.s.');
 
-  // ── US onsite cap (UK onsite allowed to score freely) ──────────────────────
+  // ── US onsite cap ───────────────────────────────────────────────────────────
   if (data.onsite_required === true && isUS) {
     data.score = Math.min(data.score as number, 40);
   }
@@ -251,6 +341,8 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
     salary_currency: data.salary_currency as SalaryCurrency,
     tech_mismatch: data.tech_mismatch as boolean,
     tech_mismatch_level: data.tech_mismatch_level as TechMismatchLevel,
+    seniority_level: data.seniority_level as SeniorityLevel,
+    infra_depth: data.infra_depth as InfraDepth,
   };
 }
 

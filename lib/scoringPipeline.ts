@@ -1,13 +1,35 @@
 import { getDb } from '@/lib/db';
 import { scoreJob } from '@/lib/openai';
 import { sendTelegramMessage } from '@/lib/telegram';
+import { CANDIDATE_PROFILE } from '@/lib/candidateProfile';
+import { findCanonicalDuplicate, markAsCanonicalDuplicate } from '@/lib/canonicalDedup';
 
-type Tier = 'A' | 'B' | 'C' | 'reject';
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SALARY_FLOOR_GBP = CANDIDATE_PROFILE.salaryFloorGbp;
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type Tier           = 'A' | 'B' | 'C' | 'reject';
+type EvaluationPath = 'reject_fast' | 'evaluate_but_ineligible' | 'evaluate';
+type Recommendation = 'strong_match' | 'possible_match' | 'weak_match' | 'ineligible';
+
+export type ScoringResult = {
+  job_id:          string;
+  tier:            Tier;
+  score:           number;
+  role_category:   string;
+  recommendation:  Recommendation;
+  evaluation_path: EvaluationPath;
+  skipped:         boolean;
+};
+
+// ─── URL liveness check ───────────────────────────────────────────────────────
 
 /**
  * Check whether a job URL is still live.
  * Returns 'expired' only when we have a confident signal (404/410, or Reed's expired page).
- * Returns 'unknown' on any network/timeout error so we don't block scoring.
+ * Returns 'unknown' on any network/timeout error so we do not block scoring.
  */
 async function checkUrlLiveness(url: string): Promise<'live' | 'expired' | 'unknown'> {
   try {
@@ -17,7 +39,6 @@ async function checkUrlLiveness(url: string): Promise<'live' | 'expired' | 'unkn
     const isReed = url.includes('reed.co.uk');
 
     const res = await fetch(url, {
-      // HEAD is fast — no body download. Only use GET for Reed which needs body inspection.
       method: isReed ? 'GET' : 'HEAD',
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -41,20 +62,24 @@ async function checkUrlLiveness(url: string): Promise<'live' | 'expired' | 'unkn
   }
 }
 
-function deriveTier(score: number): Tier {
-  if (score >= 85) return 'A';
-  if (score >= 75) return 'B';
-  if (score >= 65) return 'C';
+// ─── Derived fields ───────────────────────────────────────────────────────────
+
+function deriveTier(recommendation: Recommendation): Tier {
+  if (recommendation === 'strong_match')   return 'A';
+  if (recommendation === 'possible_match') return 'B';
+  if (recommendation === 'weak_match')     return 'C';
   return 'reject';
 }
 
-export type ScoringResult = {
-  job_id: string;
-  tier: Tier;
-  score: number;
-  role_category: string;
-  skipped: boolean;
-};
+function deriveRecommendation(score: number, isIneligible: boolean): Recommendation {
+  if (isIneligible) return 'ineligible';
+  if (score >= 85)  return 'strong_match';
+  if (score >= 75)  return 'possible_match';
+  if (score >= 65)  return 'weak_match';
+  return 'weak_match';
+}
+
+// ─── Main pipeline ────────────────────────────────────────────────────────────
 
 /**
  * Run the full scoring pipeline for a single job.
@@ -66,21 +91,27 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
 
   // ── Freeze check ───────────────────────────────────────────────────────────
   const existing = await sql`
-    SELECT tier, score, role_category FROM jobs_scored WHERE job_id = ${job_id} LIMIT 1
+    SELECT tier, score, role_category, recommendation, evaluation_path
+    FROM jobs_scored
+    WHERE job_id = ${job_id}
+    LIMIT 1
   `;
   if (existing.length > 0) {
+    const r = existing[0];
     return {
       job_id,
-      tier: existing[0].tier as Tier,
-      score: existing[0].score as number,
-      role_category: existing[0].role_category as string,
+      tier:            r.tier as Tier,
+      score:           Number(r.score),
+      role_category:   r.role_category as string,
+      recommendation:  (r.recommendation ?? 'ineligible') as Recommendation,
+      evaluation_path: (r.evaluation_path ?? 'evaluate') as EvaluationPath,
       skipped: true,
     };
   }
 
   // ── Fetch raw job ──────────────────────────────────────────────────────────
   const rawRows = await sql`
-    SELECT id, title, company, description, remote, url
+    SELECT id, title, company, description, remote, url, posted_at
     FROM jobs_raw
     WHERE id = ${job_id}
     LIMIT 1
@@ -90,23 +121,64 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
   }
 
   const { title, company, description, remote } = rawRows[0];
-  const jobUrl: string | null = rawRows[0].url ?? null;
+  const jobUrl:    string | null = rawRows[0].url      ?? null;
+  const postedAt:  string | null = rawRows[0].posted_at ?? null;
 
-  // ── URL liveness check ─────────────────────────────────────────────────────
+  // ── Level 2 canonical dedup check ─────────────────────────────────────────
+  // If this job is a cross-source duplicate of an already-scored job, skip LLM.
+  const canonicalMatch = await findCanonicalDuplicate({ job_id, company, title, posted_at: postedAt });
+  if (canonicalMatch) {
+    await markAsCanonicalDuplicate({ job_id, canonical_id: canonicalMatch.canonical_id });
+    await sql`
+      INSERT INTO jobs_scored (
+        job_id, role_category, score, experience_band, remote_feasibility,
+        reasons, red_flags, blockers, onsite_required, visa_restriction,
+        salary_min_gbp, salary_max_gbp, tech_mismatch,
+        seniority_level, infra_depth, tech_mismatch_level, salary_currency,
+        evaluation_path, recommendation, tier
+      )
+      VALUES (
+        ${job_id}, 'reject', 0, 'unknown', 'no',
+        ${JSON.stringify(['Cross-source duplicate of already-scored job'])},
+        ${JSON.stringify([])},
+        ${JSON.stringify(['Duplicate posting from another source — not re-scored'])},
+        false, false, null, null, false,
+        'unknown', 'none', 'none', 'unknown',
+        'reject_fast', 'ineligible', 'reject'
+      )
+      ON CONFLICT (job_id) DO NOTHING
+    `;
+    return {
+      job_id,
+      tier: 'reject',
+      score: 0,
+      role_category: 'reject',
+      recommendation: 'ineligible',
+      evaluation_path: 'reject_fast',
+      skipped: true,
+    };
+  }
+
+  // ── URL liveness check (reject_fast path) ─────────────────────────────────
   if (jobUrl) {
     const liveness = await checkUrlLiveness(jobUrl);
     if (liveness === 'expired') {
       await sql`
         INSERT INTO jobs_scored (
           job_id, role_category, score, experience_band, remote_feasibility,
-          reasons, red_flags, onsite_required, visa_restriction,
-          salary_min_gbp, salary_max_gbp, tech_mismatch, tier
+          reasons, red_flags, blockers, onsite_required, visa_restriction,
+          salary_min_gbp, salary_max_gbp, tech_mismatch,
+          seniority_level, infra_depth, tech_mismatch_level, salary_currency,
+          evaluation_path, recommendation, tier
         )
         VALUES (
           ${job_id}, 'reject', 0, 'unknown', 'no',
           ${JSON.stringify(['Job posting has expired'])},
           ${JSON.stringify([])},
-          false, false, null, null, false, 'reject'
+          ${JSON.stringify(['Job URL is no longer accessible'])},
+          false, false, null, null, false,
+          'unknown', 'none', 'none', 'unknown',
+          'reject_fast', 'ineligible', 'reject'
         )
         ON CONFLICT (job_id) DO NOTHING
       `;
@@ -115,39 +187,86 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
         VALUES (${job_id}, 'new')
         ON CONFLICT (job_id) DO NOTHING
       `;
-      return { job_id, tier: 'reject', score: 0, role_category: 'reject', skipped: true };
+      return {
+        job_id,
+        tier: 'reject',
+        score: 0,
+        role_category: 'reject',
+        recommendation: 'ineligible',
+        evaluation_path: 'reject_fast',
+        skipped: true,
+      };
     }
   }
 
   // ── Score with LLM ─────────────────────────────────────────────────────────
   const scoring = await scoreJob(description ?? '', { remote });
 
-  const visa_restriction: boolean = scoring.visa_restriction === 'us_only' || scoring.visa_restriction === 'eu_only';
-  const redFlags = Array.isArray(scoring.red_flags) ? scoring.red_flags : [];
-  const reasons  = Array.isArray(scoring.reasons)   ? scoring.reasons   : [];
+  const reasons   = Array.isArray(scoring.reasons)   ? scoring.reasons   : [];
+  const redFlags  = Array.isArray(scoring.red_flags)  ? scoring.red_flags : [];
 
-  // ── Hard filters ───────────────────────────────────────────────────────────
-  const level = scoring.tech_mismatch_level;
+  // ── Deterministic blockers ─────────────────────────────────────────────────
+  // Narrow hard gates: each must be a genuine, non-brittle signal.
+  const blockers: string[] = [];
 
-  const hardReject =
-    scoring.role_category === 'reject' ||
-    scoring.onsite_required === true   ||
-    visa_restriction === true          ||
-    level === 'major'                  ||
-    (scoring.salary_min_gbp !== null && scoring.salary_min_gbp < 45000);
+  // US-only work authorization: candidate cannot work there.
+  if (scoring.visa_restriction === 'us_only') {
+    blockers.push('US-only work authorization — candidate not eligible');
+  }
 
-  // ── Tech mismatch severity cap ─────────────────────────────────────────────
+  // EU-only work authorization: candidate eligibility is uncertain.
+  if (scoring.visa_restriction === 'eu_only') {
+    blockers.push('EU-only work authorization — candidate eligibility uncertain');
+  }
+
+  // US onsite (belt-and-suspenders — likely already caught by us_only above).
+  if (scoring.onsite_required && scoring.visa_restriction === 'us_only') {
+    // Already captured in the visa blocker above; do not double-add.
+  }
+
+  // Salary explicitly below floor.
+  if (scoring.salary_min_gbp !== null && scoring.salary_min_gbp < SALARY_FLOOR_GBP) {
+    blockers.push(
+      `Stated salary (£${scoring.salary_min_gbp.toLocaleString()}) is below the £${SALARY_FLOOR_GBP.toLocaleString()} floor`
+    );
+  }
+
+  // Role is clearly non-target (LLM classified as reject).
+  // The prompt instructs the LLM to only use 'reject' for clearly non-software roles.
+  if (scoring.role_category === 'reject') {
+    blockers.push('Role determined as non-target by LLM evaluation');
+  }
+
+  // Core stack is fundamentally outside candidate profile.
+  // Only fires when the LLM classifies 'major' — prompt instructs this for truly fundamental mismatches.
+  if (scoring.tech_mismatch_level === 'major') {
+    blockers.push('Core required stack is fundamentally outside candidate profile');
+  }
+
+  const isIneligible    = blockers.length > 0;
+  const evaluation_path: EvaluationPath = isIneligible ? 'evaluate_but_ineligible' : 'evaluate';
+
+  // ── Tech mismatch cap (soft penalty for 'some', hard for 'major' already above) ──
   let finalScore = scoring.score;
-  if (!hardReject && level === 'some') finalScore = Math.min(finalScore, 74);
+  if (!isIneligible && scoring.tech_mismatch_level === 'some') {
+    finalScore = Math.min(finalScore, CANDIDATE_PROFILE.techMismatchSomeCap);
+  }
 
-  const tier: Tier = hardReject ? 'reject' : deriveTier(finalScore);
+  const recommendation  = deriveRecommendation(finalScore, isIneligible);
+  const tier: Tier      = deriveTier(recommendation);
+
+  // ── Visa restriction stored as boolean for backwards compat ───────────────
+  const visaRestrictionBool: boolean =
+    scoring.visa_restriction === 'us_only' || scoring.visa_restriction === 'eu_only';
 
   // ── Atomic upsert ──────────────────────────────────────────────────────────
   await sql`
     INSERT INTO jobs_scored (
       job_id, role_category, score, experience_band, remote_feasibility,
-      reasons, red_flags, onsite_required, visa_restriction,
-      salary_min_gbp, salary_max_gbp, tech_mismatch, tier
+      reasons, red_flags, blockers, onsite_required, visa_restriction,
+      salary_min_gbp, salary_max_gbp, tech_mismatch,
+      seniority_level, infra_depth, tech_mismatch_level, salary_currency,
+      evaluation_path, recommendation, tier
     )
     VALUES (
       ${job_id},
@@ -157,11 +276,18 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
       ${scoring.remote_feasibility},
       ${JSON.stringify(reasons)},
       ${JSON.stringify(redFlags)},
+      ${JSON.stringify(blockers)},
       ${scoring.onsite_required},
-      ${visa_restriction},
+      ${visaRestrictionBool},
       ${scoring.salary_min_gbp},
       ${scoring.salary_max_gbp},
       ${scoring.tech_mismatch},
+      ${scoring.seniority_level},
+      ${scoring.infra_depth},
+      ${scoring.tech_mismatch_level},
+      ${scoring.salary_currency},
+      ${evaluation_path},
+      ${recommendation},
       ${tier}
     )
     ON CONFLICT (job_id)
@@ -172,36 +298,46 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
       remote_feasibility = EXCLUDED.remote_feasibility,
       reasons            = EXCLUDED.reasons,
       red_flags          = EXCLUDED.red_flags,
+      blockers           = EXCLUDED.blockers,
       onsite_required    = EXCLUDED.onsite_required,
       visa_restriction   = EXCLUDED.visa_restriction,
       salary_min_gbp     = EXCLUDED.salary_min_gbp,
       salary_max_gbp     = EXCLUDED.salary_max_gbp,
       tech_mismatch      = EXCLUDED.tech_mismatch,
+      seniority_level    = EXCLUDED.seniority_level,
+      infra_depth        = EXCLUDED.infra_depth,
+      tech_mismatch_level = EXCLUDED.tech_mismatch_level,
+      salary_currency    = EXCLUDED.salary_currency,
+      evaluation_path    = EXCLUDED.evaluation_path,
+      recommendation     = EXCLUDED.recommendation,
       tier               = EXCLUDED.tier
   `;
 
-  await sql`
-    INSERT INTO job_review (job_id, status)
-    VALUES (${job_id}, 'new')
-    ON CONFLICT (job_id) DO NOTHING
-  `;
+  // ── job_review: only insert for evaluate path (not for ineligible/fast-reject) ──
+  if (!isIneligible) {
+    await sql`
+      INSERT INTO job_review (job_id, status)
+      VALUES (${job_id}, 'new')
+      ON CONFLICT (job_id) DO NOTHING
+    `;
+  }
 
-
-  // ── Tier A: notify ────────────────────────────────────
-  if (tier === 'A') {
+  // ── Notify on strong_match ─────────────────────────────────────────────────
+  if (recommendation === 'strong_match') {
     try {
       const salaryLine = scoring.salary_min_gbp || scoring.salary_max_gbp
         ? `\n💰 ${scoring.salary_min_gbp ? `£${scoring.salary_min_gbp.toLocaleString()}` : ''}${scoring.salary_max_gbp ? ` – £${scoring.salary_max_gbp.toLocaleString()}` : ''}`
         : '';
-      const topReason = reasons[0] ? `\n📝 ${reasons[0]}` : '';
+      const topReason  = reasons[0]  ? `\n✅ ${reasons[0]}`  : '';
+      const topFlag    = redFlags[0] ? `\n⚠️ ${redFlags[0]}` : '';
       const msg = [
-        `🔥 Tier A — Score ${finalScore}`,
+        `🔥 Strong Match — Score ${finalScore}`,
         ``,
         `${String(title ?? 'Unknown role')}`,
         `${String(company ?? 'Unknown company')}`,
         ``,
         `${scoring.role_category} · ${scoring.experience_band} · ${scoring.remote_feasibility}`,
-        `${salaryLine}${topReason}`,
+        `${salaryLine}${topReason}${topFlag}`,
         ``,
         jobUrl ?? '',
       ].join('\n').trim();
@@ -217,5 +353,13 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
     }
   }
 
-  return { job_id, tier, score: finalScore, role_category: scoring.role_category, skipped: false };
+  return {
+    job_id,
+    tier,
+    score: finalScore,
+    role_category: scoring.role_category,
+    recommendation,
+    evaluation_path,
+    skipped: false,
+  };
 }

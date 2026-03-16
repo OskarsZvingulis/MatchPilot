@@ -103,6 +103,8 @@ export async function GET(req: NextRequest) {
       SELECT
         s.job_id,
         s.tier,
+        s.recommendation,
+        s.evaluation_path,
         s.score,
         s.role_category,
         s.experience_band,
@@ -122,6 +124,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN job_review r ON r.job_id = s.job_id
       WHERE (${tiers}::text[] IS NULL OR s.tier = ANY (${tiers}))
         AND (${statusFilter}::text IS NULL OR COALESCE(r.status, 'new') = ${statusFilter}::text)
+        AND (s.evaluation_path IS NULL OR s.evaluation_path != 'reject_fast')
       ${orderByClause}
       LIMIT ${limit}
       OFFSET ${offset}
@@ -136,6 +139,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN job_review r ON r.job_id = s.job_id
       WHERE (${tiers}::text[] IS NULL OR s.tier = ANY (${tiers}))
         AND (${statusFilter}::text IS NULL OR COALESCE(r.status, 'new') = ${statusFilter}::text)
+        AND (s.evaluation_path IS NULL OR s.evaluation_path != 'reject_fast')
     `;
 
     const totalCount = countRows[0]?.total_count || 0;

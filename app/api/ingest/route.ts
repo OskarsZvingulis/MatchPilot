@@ -25,9 +25,11 @@ export async function POST(req: NextRequest) {
 
   const sql = getDb();
 
+  const contentHash = str(b.content_hash);
+
   try {
     const rows = await sql`
-      INSERT INTO jobs_raw (id, title, company, description, location, remote, url, posted_at, source, external_id)
+      INSERT INTO jobs_raw (id, title, company, description, location, remote, url, posted_at, source, external_id, content_hash)
       VALUES (
         gen_random_uuid(),
         ${title},
@@ -38,7 +40,8 @@ export async function POST(req: NextRequest) {
         ${str(b.url)},
         ${str(b.posted_at)},
         ${str(b.source)},
-        ${str(b.external_id)}
+        ${str(b.external_id)},
+        ${contentHash}
       )
       ON CONFLICT DO NOTHING
       RETURNING id
