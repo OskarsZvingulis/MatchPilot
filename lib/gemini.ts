@@ -1,14 +1,12 @@
-import OpenAI from 'openai';
+import { GoogleGenAI } from '@google/genai';
 import { CANDIDATE_PROFILE } from '@/lib/candidateProfile';
 
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
+function getClient(): GoogleGenAI {
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set');
+    throw new Error('GEMINI_API_KEY environment variable is not set');
   }
-  // maxRetries: SDK reads Retry-After header on 429 and waits automatically.
-  // 6 retries handles bursts from the worker being triggered many times at once.
-  return new OpenAI({ apiKey, maxRetries: 6 });
+  return new GoogleGenAI({ apiKey });
 }
 
 // ─── Allowed enum values ───────────────────────────────────────────────────────
@@ -68,13 +66,13 @@ export interface JobScore {
   infra_depth: InfraDepth;
 }
 
-// ─── Scoring prompts ──────────────────────────────────────────────────────────
+// ─── Scoring prompt ───────────────────────────────────────────────────────────
 
-const SCORE_SYSTEM = `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null.`;
-
-function buildScoreUserMessage(description: string): string {
+function buildScorePrompt(description: string): string {
   const p = CANDIDATE_PROFILE;
-  return `CANDIDATE PROFILE:
+  return `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null.
+
+CANDIDATE PROFILE:
 - Based in ${p.currentLocation}. Has UK settled status. Fully eligible to work in the UK.
 - Willing to relocate to the UK for the right role.
 - Remote work is preferred. UK hybrid and UK onsite roles are acceptable.
@@ -187,18 +185,15 @@ ${description}`;
 // ─── scoreJob ─────────────────────────────────────────────────────────────────
 
 export async function scoreJob(description: string, job?: { remote?: unknown }): Promise<JobScore> {
-  const response = await getClient().chat.completions.create({
-    model: 'gpt-4o',
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: SCORE_SYSTEM },
-      { role: 'user', content: buildScoreUserMessage(description) },
-    ],
+  const response = await getClient().models.generateContent({
+    model: process.env.GEMINI_SCORER_MODEL ?? 'gemini-2.5-flash',
+    contents: buildScorePrompt(description),
+    config: { responseMimeType: 'application/json', temperature: 0 },
   });
 
-  const content = response.choices[0]?.message?.content;
+  const content = response.text;
   if (!content) {
-    throw new Error('scoreJob: OpenAI returned an empty response');
+    throw new Error('scoreJob: Gemini returned an empty response');
   }
 
   let parsed: unknown;
@@ -408,4 +403,3 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
     infra_depth: data.infra_depth as InfraDepth,
   };
 }
-

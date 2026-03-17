@@ -2,7 +2,7 @@
  * Benchmark: run scoreJob against 4 known test cases.
  * Usage: npx tsx --env-file=.env.local scripts/benchmark-score.ts
  */
-import { scoreJob } from '../lib/openai';
+import { scoreJob } from '../lib/gemini';
 
 const CASES = [
   {

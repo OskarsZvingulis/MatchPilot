@@ -1,5 +1,5 @@
 import { getDb } from '@/lib/db';
-import { scoreJob } from '@/lib/openai';
+import { scoreJob } from '@/lib/gemini';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { CANDIDATE_PROFILE } from '@/lib/candidateProfile';
 import { findCanonicalDuplicate, markAsCanonicalDuplicate } from '@/lib/canonicalDedup';
