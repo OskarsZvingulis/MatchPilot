@@ -252,7 +252,23 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
     finalScore = Math.min(finalScore, CANDIDATE_PROFILE.techMismatchSomeCap);
   }
 
-  const recommendation  = deriveRecommendation(finalScore, isIneligible);
+  let recommendation  = deriveRecommendation(finalScore, isIneligible);
+
+  // ── Conservative strong_match guard ───────────────────────────────────────
+  // A job cannot be strong_match while structured fields show a real concern.
+  // Uses structured fields only — no free-text substring matching.
+  if (recommendation === 'strong_match') {
+    const hasHeavyInfra    = scoring.infra_depth === 'heavy';
+    const hasWorkabilityQ  = scoring.remote_feasibility !== 'good';
+    const hasTechGap       = scoring.tech_mismatch_level !== 'none';
+    const hasBlockers      = blockers.length > 0;
+    const isOverSeniority  = scoring.seniority_level === 'senior' || scoring.seniority_level === 'lead_plus';
+
+    if (hasHeavyInfra || hasWorkabilityQ || hasTechGap || hasBlockers || isOverSeniority) {
+      recommendation = 'possible_match';
+    }
+  }
+
   const tier: Tier      = deriveTier(recommendation);
 
   // ── Visa restriction stored as boolean for backwards compat ───────────────

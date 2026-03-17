@@ -234,6 +234,47 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
   if (!INFRA_DEPTH_SET.has(id_)) id_ = 'none';
   data.infra_depth = id_ as InfraDepth;
 
+  // ── Deterministic infra_depth override (weighted) ───────────────────────────
+  // The LLM frequently under-classifies infra depth. Override when description
+  // contains unambiguous signals the LLM should have caught.
+  {
+    const STRONG_SIGNALS = [
+      'ecs', 'sqs', 'sns', 'eventbridge', 'kubernetes', ' k8s', 'helm',
+      'terraform', 'pulumi', ' cdk ', ' iac ', 'gitops',
+      'platform engineering', 'devops engineer',
+    ];
+    const OWNERSHIP_PHRASES = [
+      'you will own', 'ownership of', 'responsible for infrastructure',
+      'manage the infrastructure', 'microservices architecture',
+      'microservice architecture', 'build and maintain the platform',
+    ];
+    const LIGHT_SIGNALS = ['lambda', ' s3 ', 's3,', 's3.', ' ec2', ' aws', 'gcp', 'azure'];
+
+    const descL = description.toLowerCase();
+    const strongCount = STRONG_SIGNALS.filter(s => descL.includes(s)).length;
+    const ownershipHit = OWNERSHIP_PHRASES.some(p => descL.includes(p));
+    const lightCount = LIGHT_SIGNALS.filter(s => descL.includes(s)).length;
+
+    if (strongCount >= 2 || (strongCount >= 1 && ownershipHit)) {
+      // Multiple strong signals, or one strong signal plus ownership language → heavy
+      if (id_ !== 'heavy') {
+        id_ = 'heavy';
+        data.infra_depth = 'heavy';
+      }
+    } else if (strongCount === 1) {
+      // Single strong signal without ownership language → at least light
+      if (id_ === 'none') {
+        id_ = 'light';
+        data.infra_depth = 'light';
+      }
+    } else if (lightCount >= 1 && id_ === 'none') {
+      // Basic cloud tools present → light
+      id_ = 'light';
+      data.infra_depth = 'light';
+    }
+    // Never downgrade a higher LLM classification
+  }
+
   // ── Deterministic score ceilings ────────────────────────────────────────────
   const redFlags: string[] = Array.isArray(data.red_flags) ? data.red_flags as string[] : [];
   let ceiling = 100;
@@ -274,6 +315,28 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
   // ── US onsite cap ───────────────────────────────────────────────────────────
   if (data.onsite_required === true && isUS) {
     data.score = Math.min(data.score as number, 40);
+  }
+
+  // ── UK explicit-presence detection ──────────────────────────────────────────
+  // Generic "UK remote" or "remote, UK" is fine — candidate is UK-eligible + willing to relocate.
+  // Only flag when the description explicitly requires *current* UK physical presence.
+  {
+    const UK_PRESENCE_PATTERNS = [
+      'must be currently based in the uk',
+      'currently based in the uk',
+      'uk residents only',
+      'remote within the uk only',
+      'must be based in the uk',
+      'must have the right to work and be based in the uk',
+    ];
+    const rf2: string[] = Array.isArray(data.red_flags) ? data.red_flags as string[] : [];
+    if (UK_PRESENCE_PATTERNS.some(p => descriptionLower.includes(p))) {
+      if (data.remote_feasibility === 'good') data.remote_feasibility = 'maybe';
+      if (!rf2.some(f => f.toLowerCase().includes('uk physical') || f.toLowerCase().includes('uk presence'))) {
+        rf2.push('Role requires current UK physical presence — workable via relocation but not confirmed remote-friendly from abroad');
+        data.red_flags = rf2;
+      }
+    }
   }
   // ───────────────────────────────────────────────────────────────────────────
 
