@@ -1,5 +1,5 @@
 import { getDb } from '@/lib/db';
-import { scoreJob } from '@/lib/gemini';
+import { extractJob, type JobExtraction } from '@/lib/gemini';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { CANDIDATE_PROFILE } from '@/lib/candidateProfile';
 import { findCanonicalDuplicate, markAsCanonicalDuplicate } from '@/lib/canonicalDedup';
@@ -7,6 +7,7 @@ import { findCanonicalDuplicate, markAsCanonicalDuplicate } from '@/lib/canonica
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SALARY_FLOOR_GBP = CANDIDATE_PROFILE.salaryFloorGbp;
+const P = CANDIDATE_PROFILE;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,11 +27,6 @@ export type ScoringResult = {
 
 // ─── URL liveness check ───────────────────────────────────────────────────────
 
-/**
- * Check whether a job URL is still live.
- * Returns 'expired' only when we have a confident signal (404/410, or Reed's expired page).
- * Returns 'unknown' on any network/timeout error so we do not block scoring.
- */
 async function checkUrlLiveness(url: string): Promise<'live' | 'expired' | 'unknown'> {
   try {
     const controller = new AbortController();
@@ -62,6 +58,88 @@ async function checkUrlLiveness(url: string): Promise<'live' | 'expired' | 'unkn
   }
 }
 
+// ─── Deterministic score computation ──────────────────────────────────────────
+//
+// Gemini provides raw_score (rough stack/domain fit estimate) and structured
+// signals. This function applies deterministic ceilings and penalties to derive
+// the final score. Gemini's raw_score is never used directly as the final score.
+
+function isUSRole(extraction: JobExtraction): boolean {
+  return (
+    extraction.visa_restriction === 'us_only' ||
+    extraction.geography_workability === 'us_remote' ||
+    extraction.geography_workability === 'us_onsite'
+  );
+}
+
+type ScoreComputation = {
+  score:            number;
+  appliedCeilings:  string[];
+  appliedPenalties: string[];
+};
+
+function computeScore(extraction: JobExtraction): ScoreComputation {
+  const appliedCeilings:  string[] = [];
+  const appliedPenalties: string[] = [];
+
+  let ceiling  = 100;
+  let rawScore = extraction.raw_score;
+
+  // ── Seniority stretch ──────────────────────────────────────────────────────
+  if (extraction.seniority_level === 'senior') {
+    const cap = P.seniorityCeilings.senior; // 68
+    ceiling = Math.min(ceiling, cap);
+    appliedCeilings.push(`senior_ceiling:${cap}`);
+    rawScore -= P.penalties.seniorityStretch; // -12
+    appliedPenalties.push('seniority_stretch:-12');
+  } else if (extraction.seniority_level === 'lead_plus') {
+    const cap = P.seniorityCeilings.lead_plus; // 58
+    ceiling = Math.min(ceiling, cap);
+    appliedCeilings.push(`lead_plus_ceiling:${cap}`);
+    rawScore -= P.penalties.seniorityStretch; // -12
+    appliedPenalties.push('seniority_stretch:-12');
+  }
+
+  // ── Infra / platform / SRE mismatch ──────────────────────────────────────
+  if (extraction.infra_depth === 'heavy') {
+    const cap = P.scoreCeilings.heavyInfra; // 72
+    ceiling = Math.min(ceiling, cap);
+    appliedCeilings.push(`heavy_infra_ceiling:${cap}`);
+    rawScore -= P.penalties.infraMismatch; // -10
+    appliedPenalties.push('infra_mismatch:-10');
+  }
+
+  // ── Stack evidence quality ─────────────────────────────────────────────────
+  const directCount = extraction.direct_match_signals.length;
+
+  if (directCount === 0) {
+    // No direct core stack matches — adjacent or vague evidence only
+    const cap = P.scoreCeilings.adjacentStackOnly; // 78
+    ceiling = Math.min(ceiling, cap);
+    appliedCeilings.push(`adjacent_stack_only_ceiling:${cap}`);
+    rawScore -= P.penalties.vagueStackEvidence; // -8
+    appliedPenalties.push('vague_stack_evidence:-8');
+  } else if (directCount < P.scoreCeilings.minDirectMatchesForFull) {
+    // 1–2 direct matches — partial evidence
+    const cap = P.scoreCeilings.fewDirectMatches; // 85
+    ceiling = Math.min(ceiling, cap);
+    appliedCeilings.push(`few_direct_matches_ceiling:${cap}(${directCount})`);
+  }
+  // 3+ direct matches → no stack-based ceiling
+
+  // ── Hybrid / onsite friction for UK roles ─────────────────────────────────
+  // Applies when office attendance is required AND it's not a US role
+  // (US roles are typically already blocked by visa restriction)
+  if (extraction.onsite_required && !isUSRole(extraction)) {
+    rawScore -= P.penalties.hybridOnsiteFriction; // -6
+    appliedPenalties.push('hybrid_onsite_friction:-6');
+  }
+
+  const score = Math.max(0, Math.min(rawScore, ceiling));
+
+  return { score, appliedCeilings, appliedPenalties };
+}
+
 // ─── Derived fields ───────────────────────────────────────────────────────────
 
 function deriveTier(recommendation: Recommendation): Tier {
@@ -71,21 +149,38 @@ function deriveTier(recommendation: Recommendation): Tier {
   return 'reject';
 }
 
-function deriveRecommendation(score: number, isIneligible: boolean): Recommendation {
+// A role has "major stretch signals" when the candidate clearly does not fit
+// the seniority, infra demands, or management expectations of the role.
+// strong_match is blocked when any of these are present.
+function hasMajorStretch(extraction: JobExtraction): boolean {
+  return (
+    extraction.seniority_level === 'senior' ||
+    extraction.seniority_level === 'lead_plus' ||
+    extraction.infra_depth === 'heavy' ||
+    extraction.management_expectation === true
+  );
+}
+
+function deriveRecommendation(
+  score:        number,
+  isIneligible: boolean,
+  extraction:   JobExtraction,
+): Recommendation {
   if (isIneligible) return 'ineligible';
-  if (score >= 85)  return 'strong_match';
-  if (score >= 75)  return 'possible_match';
-  if (score >= 65)  return 'weak_match';
+
+  // strong_match: score >= 86 AND no major stretch signals
+  if (score >= 86 && !hasMajorStretch(extraction)) return 'strong_match';
+
+  // possible_match: 72–85 (no fatal blockers already excluded above)
+  if (score >= 72) return 'possible_match';
+
+  // weak_match: everything else — includes sub-55 scores with meaningful
+  // stretch signals, which are kept visible rather than discarded
   return 'weak_match';
 }
 
 // ─── Main pipeline ────────────────────────────────────────────────────────────
 
-/**
- * Run the full scoring pipeline for a single job.
- * Idempotent: if jobs_scored already has a row, returns immediately (skipped=true).
- * Throws on job-not-found or LLM failure — caller is responsible for error handling.
- */
 export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
   const sql = getDb();
 
@@ -121,11 +216,10 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
   }
 
   const { title, company, description, remote } = rawRows[0];
-  const jobUrl:    string | null = rawRows[0].url      ?? null;
+  const jobUrl:    string | null = rawRows[0].url       ?? null;
   const postedAt:  string | null = rawRows[0].posted_at ?? null;
 
   // ── Level 2 canonical dedup check ─────────────────────────────────────────
-  // If this job is a cross-source duplicate of an already-scored job, skip LLM.
   const canonicalMatch = await findCanonicalDuplicate({ job_id, company, title, posted_at: postedAt });
   if (canonicalMatch) {
     await markAsCanonicalDuplicate({ job_id, canonical_id: canonicalMatch.canonical_id });
@@ -199,81 +293,71 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
     }
   }
 
-  // ── Score with LLM ─────────────────────────────────────────────────────────
-  const scoring = await scoreJob(description ?? '', { remote });
-
-  const reasons   = Array.isArray(scoring.reasons)   ? scoring.reasons   : [];
-  const redFlags  = Array.isArray(scoring.red_flags)  ? scoring.red_flags : [];
+  // ── Extract signals with LLM ───────────────────────────────────────────────
+  const extraction = await extractJob(description ?? '', { remote });
 
   // ── Deterministic blockers ─────────────────────────────────────────────────
-  // Narrow hard gates: each must be a genuine, non-brittle signal.
+  // These override anything the LLM says. Only hard, unambiguous gates.
   const blockers: string[] = [];
 
-  // US-only work authorization: candidate cannot work there.
-  if (scoring.visa_restriction === 'us_only') {
+  if (extraction.visa_restriction === 'us_only') {
     blockers.push('US-only work authorization — candidate not eligible');
   }
 
-  // EU-only work authorization: candidate eligibility is uncertain.
-  if (scoring.visa_restriction === 'eu_only') {
+  if (extraction.visa_restriction === 'eu_only') {
     blockers.push('EU-only work authorization — candidate eligibility uncertain');
   }
 
-  // US onsite (belt-and-suspenders — likely already caught by us_only above).
-  if (scoring.onsite_required && scoring.visa_restriction === 'us_only') {
-    // Already captured in the visa blocker above; do not double-add.
-  }
-
-  // Salary explicitly below floor.
-  if (scoring.salary_min_gbp !== null && scoring.salary_min_gbp < SALARY_FLOOR_GBP) {
+  if (extraction.salary_min_gbp !== null && extraction.salary_min_gbp < SALARY_FLOOR_GBP) {
     blockers.push(
-      `Stated salary (£${scoring.salary_min_gbp.toLocaleString()}) is below the £${SALARY_FLOOR_GBP.toLocaleString()} floor`
+      `Stated salary (£${extraction.salary_min_gbp.toLocaleString()}) is below the £${SALARY_FLOOR_GBP.toLocaleString()} floor`
     );
   }
 
-  // Role is clearly non-target (LLM classified as reject).
-  // The prompt instructs the LLM to only use 'reject' for clearly non-software roles.
-  if (scoring.role_category === 'reject') {
+  if (extraction.role_category === 'reject') {
     blockers.push('Role determined as non-target by LLM evaluation');
   }
 
-  // Core stack is fundamentally outside candidate profile.
-  // Only fires when the LLM classifies 'major' — prompt instructs this for truly fundamental mismatches.
-  if (scoring.tech_mismatch_level === 'major') {
+  if (extraction.tech_mismatch_level === 'major') {
     blockers.push('Core required stack is fundamentally outside candidate profile');
   }
 
   const isIneligible    = blockers.length > 0;
   const evaluation_path: EvaluationPath = isIneligible ? 'evaluate_but_ineligible' : 'evaluate';
 
-  // ── Tech mismatch cap (soft penalty for 'some', hard for 'major' already above) ──
-  let finalScore = scoring.score;
-  if (!isIneligible && scoring.tech_mismatch_level === 'some') {
-    finalScore = Math.min(finalScore, CANDIDATE_PROFILE.techMismatchSomeCap);
+  // ── Compute final score deterministically ─────────────────────────────────
+  // For ineligible jobs, still compute a score (stored for reference) but
+  // recommendation will be overridden to 'ineligible'.
+  const { score: finalScore } = computeScore(extraction);
+
+  // ── Derive recommendation ─────────────────────────────────────────────────
+  const recommendation = deriveRecommendation(finalScore, isIneligible, extraction);
+  const tier: Tier      = deriveTier(recommendation);
+
+  // ── Map extraction fields to DB columns ───────────────────────────────────
+  // reasons_for  → reasons (positive signals shown in UI)
+  // reasons_against → red_flags (negative signals shown in UI)
+  const reasons  = extraction.reasons_for;
+  const redFlags = extraction.reasons_against;
+
+  // Append ceiling/penalty annotations to red_flags for observability
+  if (extraction.seniority_level === 'senior' || extraction.seniority_level === 'lead_plus') {
+    const label = extraction.seniority_level === 'senior'
+      ? 'Role is explicitly senior — exceeds candidate level'
+      : 'Role is lead/staff/principal — significantly exceeds candidate level';
+    if (!redFlags.some(f => f.toLowerCase().includes('senior') || f.toLowerCase().includes('lead'))) {
+      redFlags.push(label);
+    }
   }
-
-  let recommendation  = deriveRecommendation(finalScore, isIneligible);
-
-  // ── Conservative strong_match guard ───────────────────────────────────────
-  // A job cannot be strong_match while structured fields show a real concern.
-  // Uses structured fields only — no free-text substring matching.
-  if (recommendation === 'strong_match') {
-    const hasHeavyInfra    = scoring.infra_depth === 'heavy';
-    const hasWorkabilityQ  = scoring.remote_feasibility !== 'good';
-    const hasTechGap       = scoring.tech_mismatch_level !== 'none';
-    const hasBlockers      = blockers.length > 0;
-    const isOverSeniority  = scoring.seniority_level === 'senior' || scoring.seniority_level === 'lead_plus';
-
-    if (hasHeavyInfra || hasWorkabilityQ || hasTechGap || hasBlockers || isOverSeniority) {
-      recommendation = 'possible_match';
+  if (extraction.infra_depth === 'heavy') {
+    if (!redFlags.some(f => f.toLowerCase().includes('infra'))) {
+      redFlags.push('Infrastructure ownership depth (Terraform/ECS/platform) exceeds candidate profile');
     }
   }
 
-  const tier: Tier      = deriveTier(recommendation);
-
   // ── Visa restriction stored as boolean for backwards compat ───────────────
   const visaRestrictionBool: boolean =
-    scoring.visa_restriction === 'us_only' || scoring.visa_restriction === 'eu_only';
+    extraction.visa_restriction === 'us_only' || extraction.visa_restriction === 'eu_only';
 
   // ── Atomic upsert ──────────────────────────────────────────────────────────
   await sql`
@@ -286,22 +370,22 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
     )
     VALUES (
       ${job_id},
-      ${scoring.role_category},
+      ${extraction.role_category},
       ${finalScore},
-      ${scoring.experience_band},
-      ${scoring.remote_feasibility},
+      ${extraction.experience_band},
+      ${extraction.remote_feasibility},
       ${JSON.stringify(reasons)},
       ${JSON.stringify(redFlags)},
       ${JSON.stringify(blockers)},
-      ${scoring.onsite_required},
+      ${extraction.onsite_required},
       ${visaRestrictionBool},
-      ${scoring.salary_min_gbp},
-      ${scoring.salary_max_gbp},
-      ${scoring.tech_mismatch},
-      ${scoring.seniority_level},
-      ${scoring.infra_depth},
-      ${scoring.tech_mismatch_level},
-      ${scoring.salary_currency},
+      ${extraction.salary_min_gbp},
+      ${extraction.salary_max_gbp},
+      ${extraction.tech_mismatch},
+      ${extraction.seniority_level},
+      ${extraction.infra_depth},
+      ${extraction.tech_mismatch_level},
+      ${extraction.salary_currency},
       ${evaluation_path},
       ${recommendation},
       ${tier}
@@ -329,7 +413,7 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
       tier               = EXCLUDED.tier
   `;
 
-  // ── job_review: only insert for evaluate path (not for ineligible/fast-reject) ──
+  // ── job_review: only insert for evaluate path ──────────────────────────────
   if (!isIneligible) {
     await sql`
       INSERT INTO job_review (job_id, status)
@@ -341,18 +425,18 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
   // ── Notify on strong_match ─────────────────────────────────────────────────
   if (recommendation === 'strong_match') {
     try {
-      const salaryLine = scoring.salary_min_gbp || scoring.salary_max_gbp
-        ? `\n💰 ${scoring.salary_min_gbp ? `£${scoring.salary_min_gbp.toLocaleString()}` : ''}${scoring.salary_max_gbp ? ` – £${scoring.salary_max_gbp.toLocaleString()}` : ''}`
+      const salaryLine = extraction.salary_min_gbp || extraction.salary_max_gbp
+        ? `\n💰 ${extraction.salary_min_gbp ? `£${extraction.salary_min_gbp.toLocaleString()}` : ''}${extraction.salary_max_gbp ? ` – £${extraction.salary_max_gbp.toLocaleString()}` : ''}`
         : '';
-      const topReason  = reasons[0]  ? `\n✅ ${reasons[0]}`  : '';
-      const topFlag    = redFlags[0] ? `\n⚠️ ${redFlags[0]}` : '';
+      const topReason  = reasons[0]   ? `\n✅ ${reasons[0]}`   : '';
+      const topFlag    = redFlags[0]  ? `\n⚠️ ${redFlags[0]}` : '';
       const msg = [
         `🔥 Strong Match — Score ${finalScore}`,
         ``,
         `${String(title ?? 'Unknown role')}`,
         `${String(company ?? 'Unknown company')}`,
         ``,
-        `${scoring.role_category} · ${scoring.experience_band} · ${scoring.remote_feasibility}`,
+        `${extraction.role_category} · ${extraction.experience_band} · ${extraction.remote_feasibility}`,
         `${salaryLine}${topReason}${topFlag}`,
         ``,
         jobUrl ?? '',
@@ -373,7 +457,7 @@ export async function runScoringForJob(job_id: string): Promise<ScoringResult> {
     job_id,
     tier,
     score: finalScore,
-    role_category: scoring.role_category,
+    role_category: extraction.role_category,
     recommendation,
     evaluation_path,
     skipped: false,

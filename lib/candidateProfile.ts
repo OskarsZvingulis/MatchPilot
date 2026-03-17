@@ -1,7 +1,6 @@
 /**
  * Candidate profile — single source of truth for scoring.
  * Edit this file to update geography, stack, seniority target, or salary floor.
- * No redeploy of prompt logic required — openai.ts reads from here.
  */
 
 export const CANDIDATE_PROFILE = {
@@ -25,15 +24,29 @@ export const CANDIDATE_PROFILE = {
   // mid-level IC: ~3-5 years. NOT senior, lead, staff, principal.
   targetSeniority: 'mid' as const,
 
-  // Score ceilings applied deterministically after LLM response
+  // Hard ceilings applied deterministically after LLM extraction
   seniorityCeilings: {
-    senior:    74,
-    lead_plus: 64,
+    senior:    68,  // was 74 — tighter cap for seniority stretch
+    lead_plus: 58,  // was 64 — 10 below senior, same gap as before
   },
 
-  // ─── Infrastructure Depth ─────────────────────────────────────────────────
-  // Familiar with basic AWS concepts but NOT an infra engineer
-  infraPenalty: 10,     // subtracted from ceiling when infra_depth === 'heavy'
+  // Ceilings for stack and infra quality
+  scoreCeilings: {
+    heavyInfra:           72,  // cap when infra_depth === 'heavy'
+    adjacentStackOnly:    78,  // cap when 0 direct core stack matches (adjacent/vague only)
+    fewDirectMatches:     85,  // cap when 1–2 direct core stack matches
+    minDirectMatchesForFull: 3, // need 3+ direct matches to skip the 85 cap
+  },
+
+  // Deterministic penalties (subtracted from raw_score before ceiling)
+  penalties: {
+    seniorityStretch:     12,  // senior or lead_plus role
+    infraMismatch:        10,  // heavy infra depth
+    vagueStackEvidence:    8,  // 0 direct core stack matches
+    hybridOnsiteFriction:  6,  // onsite/hybrid required for UK role
+    hardWorkabilityBlocker: 20, // hard workability blocker (short of full ineligible)
+  },
+
   infraCeilingMin: 40,  // floor: ceiling never goes below this
 
   // ─── Tech Stack ───────────────────────────────────────────────────────────
@@ -55,7 +68,6 @@ export const CANDIDATE_PROFILE = {
   ],
 
   // ─── Target Role Categories ────────────────────────────────────────────────
-  // In priority order — maps to role_category enum in scoring
   targetRoles: [
     'product_engineer',
     'technical_support',
@@ -68,8 +80,9 @@ export const CANDIDATE_PROFILE = {
   // ─── Salary Floor ─────────────────────────────────────────────────────────
   salaryFloorGbp: 45_000,
 
-  // ─── Tech mismatch score cap ──────────────────────────────────────────────
-  techMismatchSomeCap: 74,  // score capped at 74 when tech_mismatch_level === 'some'
+  // ─── Legacy aliases (kept for reference) ──────────────────────────────────
+  infraPenalty:        10,   // == penalties.infraMismatch
+  techMismatchSomeCap: 78,   // updated from 74 to align with scoreCeilings.adjacentStackOnly
 } as const;
 
 export type CandidateProfile = typeof CANDIDATE_PROFILE;

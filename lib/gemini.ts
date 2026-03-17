@@ -37,175 +37,236 @@ const SENIORITY_LEVEL_SET = new Set<string>(SENIORITY_LEVELS);
 const INFRA_DEPTHS = ['none', 'light', 'heavy'] as const;
 const INFRA_DEPTH_SET = new Set<string>(INFRA_DEPTHS);
 
-type RoleCategory = (typeof ROLE_CATEGORIES)[number];
-type ExperienceBand = (typeof EXPERIENCE_BANDS)[number];
-type RemoteFeasibility = (typeof REMOTE_FEASIBILITIES)[number];
-type VisaRestriction = (typeof VISA_RESTRICTIONS)[number];
-type SalaryCurrency = (typeof SALARY_CURRENCIES)[number];
-type TechMismatchLevel = (typeof TECH_MISMATCH_LEVELS)[number];
-type SeniorityLevel = (typeof SENIORITY_LEVELS)[number];
-type InfraDepth = (typeof INFRA_DEPTHS)[number];
+const GEOGRAPHY_WORKABILITY_VALUES = [
+  'uk_remote', 'uk_hybrid', 'uk_onsite',
+  'us_remote', 'us_onsite',
+  'eu_remote', 'eu_onsite',
+  'global_remote', 'unknown',
+] as const;
+const GEOGRAPHY_WORKABILITY_SET = new Set<string>(GEOGRAPHY_WORKABILITY_VALUES);
 
-// ─── Return types ─────────────────────────────────────────────────────────────
+type RoleCategory       = (typeof ROLE_CATEGORIES)[number];
+type ExperienceBand     = (typeof EXPERIENCE_BANDS)[number];
+type RemoteFeasibility  = (typeof REMOTE_FEASIBILITIES)[number];
+type VisaRestriction    = (typeof VISA_RESTRICTIONS)[number];
+type SalaryCurrency     = (typeof SALARY_CURRENCIES)[number];
+type TechMismatchLevel  = (typeof TECH_MISMATCH_LEVELS)[number];
+type SeniorityLevel     = (typeof SENIORITY_LEVELS)[number];
+type InfraDepth         = (typeof INFRA_DEPTHS)[number];
+type GeographyWorkability = (typeof GEOGRAPHY_WORKABILITY_VALUES)[number];
 
-export interface JobScore {
-  role_category: RoleCategory;
-  score: number;
-  experience_band: ExperienceBand;
-  remote_feasibility: RemoteFeasibility;
-  reasons: string[];
-  red_flags: string[];
-  onsite_required: boolean;
+// ─── Extraction type ───────────────────────────────────────────────────────────
+// Gemini extracts signals only. Final score and recommendation are derived
+// deterministically in scoringPipeline.ts.
+
+export interface JobExtraction {
+  // Role classification
+  role_category:       RoleCategory;
+  seniority_level:     SeniorityLevel;
+
+  // Stack signals — used for deterministic ceiling/penalty logic
+  direct_match_signals:   string[];  // core stack terms explicitly in job text
+  adjacent_match_signals: string[];  // similar but not core stack
+  stretch_signals:        string[];  // clear gaps candidate does not have
+
+  // Depth signals
+  infra_depth:            InfraDepth;
+  management_expectation: boolean;   // role expects managing people
+
+  // Geography & work mode
+  geography_workability:  GeographyWorkability;
+  remote_feasibility:     RemoteFeasibility;
+  onsite_required:        boolean;
+
+  // Textual signals
+  blockers:       string[];  // informational — pipeline decides final blockers
+  reasons_for:    string[];  // positive signals
+  reasons_against: string[]; // negative signals
+
+  // LLM's rough estimate — informational only, pipeline overrides
+  raw_score: number;
+
+  // Legacy fields kept for DB compatibility and pipeline blocker logic
+  experience_band:  ExperienceBand;
   visa_restriction: VisaRestriction;
-  salary_min_gbp: number | null;
-  salary_max_gbp: number | null;
-  salary_currency: SalaryCurrency;
-  tech_mismatch: boolean;
+  salary_min_gbp:   number | null;
+  salary_max_gbp:   number | null;
+  salary_currency:  SalaryCurrency;
+  tech_mismatch:    boolean;
   tech_mismatch_level: TechMismatchLevel;
-  seniority_level: SeniorityLevel;
-  infra_depth: InfraDepth;
 }
 
-// ─── Scoring prompt ───────────────────────────────────────────────────────────
+// Backward-compat alias
+export type JobScore = JobExtraction;
 
-function buildScorePrompt(description: string): string {
+// ─── Extraction prompt ─────────────────────────────────────────────────────────
+
+function buildExtractionPrompt(description: string): string {
   const p = CANDIDATE_PROFILE;
-  return `You are a job classification and scoring engine. Return ONLY valid JSON. No explanation. No markdown. No commentary. Fill every key in the required structure. Salary fields must be numbers or null.
+  return `You are a job signal extractor. Extract structured signals from the job description below. Return ONLY valid JSON. No explanation. No markdown. Fill every key.
 
 CANDIDATE PROFILE:
-- Based in ${p.currentLocation}. Has UK settled status. Fully eligible to work in the UK.
-- Willing to relocate to the UK for the right role.
-- Remote work is preferred. UK hybrid and UK onsite roles are acceptable.
-- Target level: mid-level individual contributor (roughly 3-5 years). NOT positioned as senior, lead, staff, or principal.
+- Based in ${p.currentLocation}. UK settled status. Fully eligible to work in the UK.
+- Willing to relocate to the UK for the right role. Latvia location is NOT a blocker for UK roles.
+- Remote preferred. UK hybrid and UK onsite roles are acceptable (assumes relocation).
+- Target level: mid-level individual contributor (~3-5 years). NOT positioned as senior, lead, staff, or principal.
 - Core stack: ${p.coreStack.join(', ')}.
-- Strengths: ${p.strengths.join(', ')}.
-- Infrastructure profile: familiar with basic cloud/AWS concepts but NOT an infrastructure engineer. No Terraform, ECS, EventBridge, SNS, IaC ownership, or platform/DevOps specialist experience.
-- US roles must be treated much more strictly — only viable if explicitly international-friendly or sponsorship-compatible.
-
-TARGET ROLES (in priority order):
-- product_engineer
-- technical_support
-- implementation_engineer
-- qa_automation
-- other
-- reject
+- NOT an infrastructure engineer. No Terraform, ECS, Kubernetes, IaC ownership, or platform/DevOps specialist experience.
+- US roles: only viable if explicitly international-friendly or sponsorship-compatible.
 
 ══════════════════════════════════════════
-SCORING RULES — READ ALL BEFORE SCORING
+EXTRACTION RULES
 ══════════════════════════════════════════
 
-STEP 1 — CLASSIFY SENIORITY LEVEL (seniority_level field):
-- "junior":    explicit graduate / junior / entry-level / 0-2 years
-- "mid":       3-5 years explicitly, or no seniority signal at all
-- "senior":    title or body contains Senior, 5+ years, or "5 years+"
-- "lead_plus": title or body contains Lead, Staff, Principal, Architect, Head of, VP, Director
-- "unknown":   cannot determine
-RULE: Classify from the job title first, then body. Do NOT infer from tone or responsibility language.
+1. direct_match_signals
+   List ONLY technology/skills from the job text that also appear in the core stack above.
+   Core stack includes: TypeScript, JavaScript, React, Next.js, Node.js, REST APIs, Postgres/PostgreSQL, SQL, Supabase.
+   Do NOT include Vue, Angular, Python, etc. even if similar. Empty array is valid.
 
-STEP 2 — CLASSIFY INFRASTRUCTURE DEPTH (infra_depth field):
-- "none":  no infrastructure requirements
-- "light": some AWS/cloud mentions (S3, Lambda basics) but no ownership or specialist depth required
-- "heavy": role explicitly requires ownership or specialist depth in ANY of:
-    Terraform, ECS, EventBridge, SNS, SQS, Kubernetes, Helm, CI/CD pipeline ownership,
-    cloud infrastructure design, microservices platform ownership, IaC, GitOps, CDK, Pulumi,
-    DevOps ownership, platform engineering, "you will own the infrastructure"
-RULE: If two or more heavy signals are present, always output "heavy". One strong signal alone is also "heavy".
+2. adjacent_match_signals
+   Technology/skills similar to but NOT in the core stack.
+   Examples: Vue, Angular, Python, FastAPI, Ruby, Rails, MySQL, MongoDB, modern web frameworks.
 
-STEP 3 — SCORE STACK FIT (positive signals):
-Positive score contribution from: TypeScript, React, Next.js, Node.js, REST APIs, Postgres, SaaS, integrations, debugging, workflow systems.
-These are ADDITIVE but cannot push the score above ceilings set in step 4/5.
+3. stretch_signals
+   Technology/skills the candidate clearly lacks.
+   Examples: Terraform, Kubernetes, ECS, Helm, IaC, platform engineering, .NET, Java, mobile-native, embedded.
 
-STEP 4 — APPLY SENIORITY CEILING to your raw score:
-- seniority "junior" or "mid": no ceiling from seniority
-- seniority "senior": your score MUST NOT exceed 74
-- seniority "lead_plus": your score MUST NOT exceed 64
-Reason: candidate is not positioned for senior/lead roles. Stack keyword match is irrelevant if level is wrong.
-Add to red_flags: "Role is explicitly senior — exceeds candidate level" or "Role is lead/staff/principal — significantly exceeds candidate level"
+4. seniority_level
+   - "junior":    explicit graduate / junior / entry-level / 0-2 years
+   - "mid":       3-5 years explicitly, or NO seniority signal at all (DEFAULT)
+   - "senior":    title or body contains Senior, 5+ years, "5 years+"
+   - "lead_plus": title or body contains Lead, Staff, Principal, Architect, Head of, VP, Director
+   - "unknown":   cannot determine
+   Classify from job TITLE first, then body. Do NOT infer from responsibility language.
 
-STEP 5 — APPLY INFRA DEPTH CEILING on top of seniority ceiling:
-- infra_depth "none" or "light": no additional ceiling
-- infra_depth "heavy": subtract 10 from the seniority-adjusted ceiling (minimum ceiling 40)
-Reason: infrastructure depth is outside candidate's profile even if the application stack matches.
-Add to red_flags: "Infrastructure ownership depth (Terraform/ECS/platform) exceeds candidate profile"
+5. infra_depth
+   - "none":  no infrastructure requirements
+   - "light": some AWS/cloud mentions (S3, Lambda basics) but no ownership or specialist depth required
+   - "heavy": role explicitly requires ownership or specialist depth in ANY of:
+       Terraform, ECS, EventBridge, SNS, SQS, Kubernetes, Helm, CI/CD pipeline ownership,
+       cloud infrastructure design, IaC, GitOps, CDK, Pulumi, DevOps ownership, platform engineering,
+       "you will own the infrastructure"
+   RULE: 2+ heavy signals → "heavy". One strong signal alone → "heavy". One mention without ownership → "light".
 
-EXAMPLE: Senior role + heavy infra → seniority ceiling 74, minus 10 for infra = final ceiling 64. Score cannot exceed 64.
-EXAMPLE: Lead role + heavy infra → seniority ceiling 64, minus 10 for infra = final ceiling 54.
-EXAMPLE: Mid role + heavy infra → no seniority ceiling, minus 10 from 100 = ceiling 90 (then infra cap below).
+6. management_expectation
+   true ONLY if role explicitly expects managing/leading a team of people.
 
-STEP 6 — TECH MISMATCH:
-- "none": core stack aligns (TypeScript, React, REST APIs, SaaS)
-- "some": partial match — notable gaps the candidate could ramp on
-- "major": core required stack is entirely outside candidate experience (Django, Java, mobile-native, DBA-heavy, embedded, .NET-only)
-NOTE: AWS/Terraform/infra requirements alone do NOT make tech_mismatch "major" — that is captured by infra_depth. Use "some" if AWS is secondary to a TypeScript/Node core.
-tech_mismatch must be true only when tech_mismatch_level is "major".
+7. onsite_required
+   true if the job requires ANY office attendance, including hybrid patterns.
+   Examples that are TRUE: "3 days in office", "hybrid 3 days/week", "must commute to London",
+     "2 days remote 3 days onsite", "onsite required".
+   Examples that are FALSE: "fully remote", "remote-first", no mention of office.
 
-OTHER RULES:
-- Do NOT treat UK location or right-to-work as negative — candidate is fully UK-eligible.
-- Do NOT reject a UK role because candidate is in Latvia — relocation is intended.
-- Handle US roles much more strictly (visa/sponsorship required).
-- Do not invent experience, seniority, or leadership claims.
-- onsite_required: true only if explicitly onsite-only or no remote option stated.
+8. remote_feasibility
+   - "good":  fully remote or explicitly internationally remote
+   - "maybe": hybrid (requires commuting), or requires UK physical presence (achievable via relocation)
+   - "no":    US-only or requires immediate physical presence impossible via relocation
 
-Experience band:
-- "5+": posting has Senior, Staff, Lead, Principal, or "5+ years"
-- "0-2": graduate/junior/entry-level/0-2 years
-- "3-5": explicit 3-5 years
-- default "3-5" if nothing stated
+9. geography_workability
+   One of: "uk_remote", "uk_hybrid", "uk_onsite", "us_remote", "us_onsite",
+           "eu_remote", "eu_onsite", "global_remote", "unknown"
+   IMPORTANT: UK roles are eligible by default. Do NOT classify UK as negative.
+   Latvia is NOT a blocker for UK roles — candidate will relocate.
+   "us_onsite" or "us_remote" = strict (requires US authorization).
 
-Scoring scale (AFTER applying all ceilings above):
-- 85–100: Exceptional fit (only possible for mid/junior roles with good stack match)
-- 75–84: Strong fit
-- 65–74: Moderate fit
-- 50–64: Weak fit / possible match
-- 0–49: Poor fit
+10. visa_restriction
+    - "uk_only": "must have right to work in UK", "no sponsorship available" (UK-specific)
+    - "us_only": "must be authorized to work in US", "no visa sponsorship" (US-specific)
+    - "eu_only": "EU work authorization required"
+    - "none":    no explicit restriction, or international OK
+    - "unknown": unclear
+    NOTE: "right to work in the UK" alone is NOT a hard blocker — candidate has UK settled status.
 
-REQUIRED JSON STRUCTURE:
+11. blockers (informational — final decision is made in code, not here)
+    Include only clear hard blockers:
+    - US-only work authorization
+    - EU-only work authorization (uncertain eligibility)
+    - Explicit salary below £45,000
+    - Clearly non-software role (sales, HR, accounting, etc.)
+    Do NOT include: UK right-to-work, Latvia location, seniority mismatch.
+
+12. reasons_for
+    Positive signals: stack match, domain fit, good remote setup, relevant role type, etc.
+
+13. reasons_against
+    Negative signals: seniority stretch, infra gap, weak stack match, salary concern, etc.
+    Include the concrete reason, e.g., "Senior title — above mid-level target".
+
+14. raw_score (0–100)
+    Your rough estimate of stack and domain fit, IGNORING seniority/infra constraints.
+    Base purely on: does the technology stack match? Is the domain relevant?
+    This value is informational — the pipeline computes the final score deterministically.
+
+15. experience_band
+    - "5+":     Senior/Lead/Staff/Principal or "5+ years"
+    - "0-2":    graduate/junior/entry-level/0-2 years
+    - "3-5":    explicit 3-5 years, or no signal (DEFAULT)
+    - "unknown": cannot determine
+
+16. salary
+    Extract salary_min_gbp, salary_max_gbp, salary_currency if explicitly stated.
+    Convert to GBP equivalent if in other currency when obvious. Null if not stated.
+
+17. tech_mismatch_level
+    - "none":  core required stack aligns with candidate (TypeScript, React, Node, etc.)
+    - "some":  partial match — notable gaps candidate could ramp on
+    - "major": core required stack is entirely outside candidate experience (Java, .NET, mobile-native, embedded)
+    Do NOT mark "major" for infrastructure requirements alone — those are captured by infra_depth.
+    tech_mismatch = true ONLY when tech_mismatch_level is "major".
+
+REQUIRED JSON:
 {
-  "role_category": "",
-  "score": 0,
-  "experience_band": "0-2|3-5|5+|unknown",
+  "role_category": "product_engineer|technical_support|implementation_engineer|qa_automation|other|reject",
+  "seniority_level": "junior|mid|senior|lead_plus|unknown",
+  "direct_match_signals": [],
+  "adjacent_match_signals": [],
+  "stretch_signals": [],
+  "infra_depth": "none|light|heavy",
+  "management_expectation": false,
+  "geography_workability": "uk_remote|uk_hybrid|uk_onsite|us_remote|us_onsite|eu_remote|eu_onsite|global_remote|unknown",
   "remote_feasibility": "good|maybe|no",
-  "reasons": ["positive reason 1", "positive reason 2"],
-  "red_flags": ["mismatch reason 1", "mismatch reason 2"],
   "onsite_required": false,
+  "blockers": [],
+  "reasons_for": [],
+  "reasons_against": [],
+  "raw_score": 75,
+  "experience_band": "0-2|3-5|5+|unknown",
   "visa_restriction": "none|uk_only|us_only|eu_only|unknown",
   "salary_min_gbp": null,
   "salary_max_gbp": null,
   "salary_currency": "GBP|EUR|USD|CAD|AUD|unknown",
   "tech_mismatch_level": "none|some|major",
-  "tech_mismatch": false,
-  "seniority_level": "junior|mid|senior|lead_plus|unknown",
-  "infra_depth": "none|light|heavy"
+  "tech_mismatch": false
 }
 
 JOB DESCRIPTION:
 ${description}`;
 }
 
-// ─── scoreJob ─────────────────────────────────────────────────────────────────
+// ─── extractJob ───────────────────────────────────────────────────────────────
 
-export async function scoreJob(description: string, job?: { remote?: unknown }): Promise<JobScore> {
+export async function extractJob(description: string, job?: { remote?: unknown }): Promise<JobExtraction> {
   const response = await getClient().models.generateContent({
     model: process.env.GEMINI_SCORER_MODEL ?? 'gemini-2.5-flash',
-    contents: buildScorePrompt(description),
+    contents: buildExtractionPrompt(description),
     config: { responseMimeType: 'application/json', temperature: 0 },
   });
 
   const content = response.text;
   if (!content) {
-    throw new Error('scoreJob: Gemini returned an empty response');
+    throw new Error('extractJob: Gemini returned an empty response');
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new Error(`scoreJob: Failed to parse JSON — ${content}`);
+    throw new Error(`extractJob: Failed to parse JSON — ${content}`);
   }
 
   const data = parsed as Record<string, unknown>;
 
-  // ── Normalize remote_feasibility before validation ──────────────────────────
+  // ── Normalize remote_feasibility ─────────────────────────────────────────
   const allowed = ['good', 'maybe', 'no'];
   let rf: string = (data.remote_feasibility as string | undefined)?.toLowerCase?.().trim() ?? '';
   if (!allowed.includes(rf)) {
@@ -213,25 +274,48 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
   }
   data.remote_feasibility = rf;
 
-  // ── Normalize tech_mismatch_level ───────────────────────────────────────────
+  // ── Normalize tech_mismatch_level ─────────────────────────────────────────
   let tml = (data.tech_mismatch_level as string | undefined)?.toLowerCase?.().trim() ?? '';
   if (!TECH_MISMATCH_LEVEL_SET.has(tml)) tml = 'some';
   data.tech_mismatch_level = tml as TechMismatchLevel;
   data.tech_mismatch = tml === 'major';
 
-  // ── Normalize seniority_level ────────────────────────────────────────────────
+  // ── Normalize seniority_level ─────────────────────────────────────────────
   let sl = (data.seniority_level as string | undefined)?.toLowerCase?.().trim() ?? '';
   if (!SENIORITY_LEVEL_SET.has(sl)) sl = 'unknown';
   data.seniority_level = sl as SeniorityLevel;
 
-  // ── Normalize infra_depth ────────────────────────────────────────────────────
+  // ── Normalize infra_depth ─────────────────────────────────────────────────
   let id_ = (data.infra_depth as string | undefined)?.toLowerCase?.().trim() ?? '';
   if (!INFRA_DEPTH_SET.has(id_)) id_ = 'none';
   data.infra_depth = id_ as InfraDepth;
 
-  // ── Deterministic infra_depth override (weighted) ───────────────────────────
-  // The LLM frequently under-classifies infra depth. Override when description
-  // contains unambiguous signals the LLM should have caught.
+  // ── Normalize geography_workability ──────────────────────────────────────
+  let gw = (data.geography_workability as string | undefined)?.toLowerCase?.().trim() ?? '';
+  if (!GEOGRAPHY_WORKABILITY_SET.has(gw)) gw = 'unknown';
+  data.geography_workability = gw as GeographyWorkability;
+
+  // ── Normalize array fields ────────────────────────────────────────────────
+  if (!Array.isArray(data.direct_match_signals))   data.direct_match_signals   = [];
+  if (!Array.isArray(data.adjacent_match_signals)) data.adjacent_match_signals = [];
+  if (!Array.isArray(data.stretch_signals))        data.stretch_signals        = [];
+  if (!Array.isArray(data.blockers))               data.blockers               = [];
+  if (!Array.isArray(data.reasons_for))            data.reasons_for            = [];
+  if (!Array.isArray(data.reasons_against))        data.reasons_against        = [];
+
+  // ── Normalize management_expectation ──────────────────────────────────────
+  if (typeof data.management_expectation !== 'boolean') data.management_expectation = false;
+
+  // ── Normalize raw_score ───────────────────────────────────────────────────
+  const rawScoreNum = Number(data.raw_score);
+  if (!Number.isFinite(rawScoreNum) || rawScoreNum < 0 || rawScoreNum > 100) {
+    data.raw_score = 50;
+  } else {
+    data.raw_score = rawScoreNum;
+  }
+
+  // ── Deterministic infra_depth override ────────────────────────────────────
+  // LLM frequently under-classifies infra depth. Override on unambiguous signals.
   {
     const STRONG_SIGNALS = [
       'ecs', 'sqs', 'sns', 'eventbridge', 'kubernetes', ' k8s', 'helm',
@@ -248,158 +332,102 @@ export async function scoreJob(description: string, job?: { remote?: unknown }):
     const descL = description.toLowerCase();
     const strongCount = STRONG_SIGNALS.filter(s => descL.includes(s)).length;
     const ownershipHit = OWNERSHIP_PHRASES.some(p => descL.includes(p));
-    const lightCount = LIGHT_SIGNALS.filter(s => descL.includes(s)).length;
+    const lightCount   = LIGHT_SIGNALS.filter(s => descL.includes(s)).length;
 
     if (strongCount >= 2 || (strongCount >= 1 && ownershipHit)) {
-      // Multiple strong signals, or one strong signal plus ownership language → heavy
       if (id_ !== 'heavy') {
         id_ = 'heavy';
         data.infra_depth = 'heavy';
       }
     } else if (strongCount === 1) {
-      // Single strong signal without ownership language → at least light
       if (id_ === 'none') {
         id_ = 'light';
         data.infra_depth = 'light';
       }
     } else if (lightCount >= 1 && id_ === 'none') {
-      // Basic cloud tools present → light
       id_ = 'light';
       data.infra_depth = 'light';
     }
     // Never downgrade a higher LLM classification
   }
 
-  // ── Deterministic score ceilings ────────────────────────────────────────────
-  const redFlags: string[] = Array.isArray(data.red_flags) ? data.red_flags as string[] : [];
-  let ceiling = 100;
-
-  if (sl === 'senior') {
-    ceiling = Math.min(ceiling, CANDIDATE_PROFILE.seniorityCeilings.senior);
-    if (!redFlags.some(f => f.toLowerCase().includes('senior'))) {
-      redFlags.push('Role is explicitly senior — exceeds candidate level');
-    }
-  } else if (sl === 'lead_plus') {
-    ceiling = Math.min(ceiling, CANDIDATE_PROFILE.seniorityCeilings.lead_plus);
-    if (!redFlags.some(f => f.toLowerCase().includes('lead') || f.toLowerCase().includes('staff') || f.toLowerCase().includes('principal'))) {
-      redFlags.push('Role is lead/staff/principal — significantly exceeds candidate level');
-    }
-  }
-
-  if (id_ === 'heavy') {
-    ceiling = Math.max(CANDIDATE_PROFILE.infraCeilingMin, ceiling - CANDIDATE_PROFILE.infraPenalty);
-    if (!redFlags.some(f => f.toLowerCase().includes('infra'))) {
-      redFlags.push('Infrastructure ownership depth (Terraform/ECS/platform) exceeds candidate profile');
-    }
-  }
-
-  data.red_flags = redFlags;
-  data.score = Math.min(data.score as number, ceiling);
-  // ────────────────────────────────────────────────────────────────────────────
-
-  // ── Region detection ───────────────────────────────────────────────────────
-  const descriptionLower = description.toLowerCase();
-
-  const isUS =
-    data.visa_restriction === 'us_only' ||
-    descriptionLower.includes('united states') ||
-    descriptionLower.includes('usa') ||
-    descriptionLower.includes('us only') ||
-    descriptionLower.includes('u.s.');
-
-  // ── US onsite cap ───────────────────────────────────────────────────────────
-  if (data.onsite_required === true && isUS) {
-    data.score = Math.min(data.score as number, 40);
-  }
-
-  // ── UK explicit-presence detection ──────────────────────────────────────────
-  // Generic "UK remote" or "remote, UK" is fine — candidate is UK-eligible + willing to relocate.
-  // Only flag when the description explicitly requires *current* UK physical presence.
+  // ── UK immediate-presence detection ──────────────────────────────────────
+  // Only flag when the job explicitly requires CURRENT UK physical presence
+  // that realistically cannot be satisfied via relocation.
+  // Generic "remote within UK" or "must be based in the UK" is fine — candidate
+  // has UK settled status and is willing to relocate.
   {
-    const UK_PRESENCE_PATTERNS = [
+    const UK_IMMEDIATE_PRESENCE_PATTERNS = [
       'must be currently based in the uk',
       'currently based in the uk',
       'uk residents only',
-      'remote within the uk only',
-      'must be based in the uk',
       'must have the right to work and be based in the uk',
     ];
-    const rf2: string[] = Array.isArray(data.red_flags) ? data.red_flags as string[] : [];
-    if (UK_PRESENCE_PATTERNS.some(p => descriptionLower.includes(p))) {
+    const descL = description.toLowerCase();
+    const reasonsAgainst: string[] = Array.isArray(data.reasons_against) ? data.reasons_against as string[] : [];
+    if (UK_IMMEDIATE_PRESENCE_PATTERNS.some(p => descL.includes(p))) {
       if (data.remote_feasibility === 'good') data.remote_feasibility = 'maybe';
-      if (!rf2.some(f => f.toLowerCase().includes('uk physical') || f.toLowerCase().includes('uk presence'))) {
-        rf2.push('Role requires current UK physical presence — workable via relocation but not confirmed remote-friendly from abroad');
-        data.red_flags = rf2;
+      if (!reasonsAgainst.some(f => f.toLowerCase().includes('uk physical') || f.toLowerCase().includes('uk presence'))) {
+        reasonsAgainst.push('Role requires current UK physical presence — workable via relocation but timeline may be a factor');
+        data.reasons_against = reasonsAgainst;
       }
     }
   }
-  // ───────────────────────────────────────────────────────────────────────────
 
+  // ── Validate required enum fields ─────────────────────────────────────────
   if (typeof data.role_category !== 'string' || !(ROLE_CATEGORIES as readonly string[]).includes(data.role_category)) {
     throw new Error(
-      `scoreJob: invalid "role_category" "${data.role_category}" — must be one of: ${ROLE_CATEGORIES.join(', ')}`,
+      `extractJob: invalid "role_category" "${data.role_category}" — must be one of: ${ROLE_CATEGORIES.join(', ')}`,
     );
-  }
-  if (
-    typeof data.score !== 'number' ||
-    !Number.isFinite(data.score) ||
-    data.score < 0 ||
-    data.score > 100
-  ) {
-    throw new Error('scoreJob: invalid "score" (expected number 0–100)');
   }
   if (typeof data.experience_band !== 'string' || !(EXPERIENCE_BANDS as readonly string[]).includes(data.experience_band)) {
-    throw new Error(
-      `scoreJob: invalid "experience_band" "${data.experience_band}" — must be one of: ${EXPERIENCE_BANDS.join(', ')}`,
-    );
+    data.experience_band = '3-5'; // safe default
   }
   if (typeof data.remote_feasibility !== 'string' || !(REMOTE_FEASIBILITIES as readonly string[]).includes(data.remote_feasibility)) {
     throw new Error(
-      `scoreJob: invalid "remote_feasibility" "${data.remote_feasibility}" — must be one of: ${REMOTE_FEASIBILITIES.join(', ')}`,
+      `extractJob: invalid "remote_feasibility" "${data.remote_feasibility}"`,
     );
-  }
-  if (!Array.isArray(data.reasons) || !data.reasons.every((r) => typeof r === 'string')) {
-    throw new Error('scoreJob: missing or invalid "reasons" (expected string[])');
-  }
-  if (!Array.isArray(data.red_flags) || !data.red_flags.every((f) => typeof f === 'string')) {
-    throw new Error('scoreJob: missing or invalid "red_flags" (expected string[])');
   }
   if (typeof data.onsite_required !== 'boolean') {
-    throw new Error('scoreJob: missing or invalid "onsite_required" (expected boolean)');
+    data.onsite_required = false;
   }
   if (typeof data.visa_restriction !== 'string' || !(VISA_RESTRICTIONS as readonly string[]).includes(data.visa_restriction)) {
-    throw new Error(
-      `scoreJob: invalid "visa_restriction" "${data.visa_restriction}" — must be one of: ${VISA_RESTRICTIONS.join(', ')}`,
-    );
+    data.visa_restriction = 'unknown';
   }
   if (data.salary_min_gbp !== null && typeof data.salary_min_gbp !== 'number') {
-    throw new Error('scoreJob: invalid "salary_min_gbp" (expected number or null)');
+    data.salary_min_gbp = null;
   }
   if (data.salary_max_gbp !== null && typeof data.salary_max_gbp !== 'number') {
-    throw new Error('scoreJob: invalid "salary_max_gbp" (expected number or null)');
+    data.salary_max_gbp = null;
   }
   if (typeof data.salary_currency !== 'string' || !(SALARY_CURRENCIES as readonly string[]).includes(data.salary_currency)) {
-    throw new Error(
-      `scoreJob: invalid "salary_currency" "${data.salary_currency}" — must be one of: ${SALARY_CURRENCIES.join(', ')}`,
-    );
+    data.salary_currency = 'unknown';
   }
-  // tech_mismatch and tech_mismatch_level are both normalized above — no further validation needed
 
   return {
-    role_category: data.role_category as RoleCategory,
-    score: data.score,
-    experience_band: data.experience_band as ExperienceBand,
-    remote_feasibility: data.remote_feasibility as RemoteFeasibility,
-    reasons: data.reasons,
-    red_flags: data.red_flags,
-    onsite_required: data.onsite_required,
-    visa_restriction: data.visa_restriction as VisaRestriction,
-    salary_min_gbp: data.salary_min_gbp as number | null,
-    salary_max_gbp: data.salary_max_gbp as number | null,
-    salary_currency: data.salary_currency as SalaryCurrency,
-    tech_mismatch: data.tech_mismatch as boolean,
-    tech_mismatch_level: data.tech_mismatch_level as TechMismatchLevel,
-    seniority_level: data.seniority_level as SeniorityLevel,
-    infra_depth: data.infra_depth as InfraDepth,
+    role_category:          data.role_category as RoleCategory,
+    seniority_level:        data.seniority_level as SeniorityLevel,
+    direct_match_signals:   data.direct_match_signals as string[],
+    adjacent_match_signals: data.adjacent_match_signals as string[],
+    stretch_signals:        data.stretch_signals as string[],
+    infra_depth:            data.infra_depth as InfraDepth,
+    management_expectation: data.management_expectation as boolean,
+    geography_workability:  data.geography_workability as GeographyWorkability,
+    remote_feasibility:     data.remote_feasibility as RemoteFeasibility,
+    onsite_required:        data.onsite_required as boolean,
+    blockers:               data.blockers as string[],
+    reasons_for:            data.reasons_for as string[],
+    reasons_against:        data.reasons_against as string[],
+    raw_score:              data.raw_score as number,
+    experience_band:        data.experience_band as ExperienceBand,
+    visa_restriction:       data.visa_restriction as VisaRestriction,
+    salary_min_gbp:         data.salary_min_gbp as number | null,
+    salary_max_gbp:         data.salary_max_gbp as number | null,
+    salary_currency:        data.salary_currency as SalaryCurrency,
+    tech_mismatch:          data.tech_mismatch as boolean,
+    tech_mismatch_level:    data.tech_mismatch_level as TechMismatchLevel,
   };
 }
+
+// Backward-compat alias — callers can update to extractJob gradually
+export const scoreJob = extractJob;
