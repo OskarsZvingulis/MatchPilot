@@ -41,5 +41,9 @@ yarn-error.log*
 next-env.d.ts
 audit.md
 plan.md
-audit.md
-plan.md
+
+# claude code
+.claude/
+
+# legacy scripts
+scripts/benchmark-score.mjs
