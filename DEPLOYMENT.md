@@ -1,17 +1,17 @@
-## Vercel Deployment Checklist
+## Railway Deployment Checklist
 
 1. Push all changes to GitHub main branch
-2. Connect repo to Vercel (vercel.com/new)
-3. Set these environment variables in Vercel dashboard:
+2. Connect repo to Railway (railway.app)
+3. Set these environment variables in Railway dashboard (web service):
    - DATABASE_URL
-   - OPENAI_API_KEY
+   - GEMINI_API_KEY
    - TELEGRAM_BOT_TOKEN
    - TELEGRAM_CHAT_ID
    - WORKER_SECRET
    - ADMIN_USERNAME
    - ADMIN_PASSWORD
    - NEXTAUTH_SECRET
-   - NEXTAUTH_URL (set to your vercel deployment URL)
+   - NEXTAUTH_URL (set to your Railway deployment URL)
 4. Deploy
 5. Run migrations against production DB in Neon (run each migrations/*.sql file in order)
 6. Update Telegram webhook URL:
