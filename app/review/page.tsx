@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { headers } from 'next/headers';
 import { parseJobsResponse, type JobRow } from '@/lib/reviewContract';
 import { TableRow } from './TableRow';
+import { FetchJobsButton } from '@/app/components/FetchJobsButton';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function headerValue(hdrs: any, key: string): string | null {
@@ -217,6 +218,7 @@ export default async function ReviewPage({
             {totalCount > 0 ? `${totalCount} jobs` : 'No jobs'}
           </p>
         </div>
+        <FetchJobsButton />
       </div>
 
       {/* Filters */}
